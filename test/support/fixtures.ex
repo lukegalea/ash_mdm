@@ -13,6 +13,8 @@ defmodule AshMdm.Fixtures do
   resources do
     resource AshMdm.Fixtures.Mapping
     resource AshMdm.Fixtures.Person
+    resource AshMdm.Fixtures.MatchRuleSet
+    resource AshMdm.Fixtures.MatchCandidate
   end
 end
 
@@ -66,4 +68,24 @@ defmodule AshMdm.Fixtures.Mapping do
 
   use AshMdm.Resources,
       {:mapping, repo: AshMdm.Test.Repo, table: "mdm_mappings", tenant?: false}
+end
+
+defmodule AshMdm.Fixtures.MatchRuleSet do
+  @moduledoc "The macro-generated MatchRuleSet on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources, {:match_rule_set, repo: AshMdm.Test.Repo, table: "mdm_match_rule_sets"}
+end
+
+defmodule AshMdm.Fixtures.MatchCandidate do
+  @moduledoc "The macro-generated MatchCandidate on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources, {:match_candidate, []}
 end

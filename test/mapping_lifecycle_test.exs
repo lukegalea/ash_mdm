@@ -141,6 +141,38 @@ defmodule AshMdm.Mapping.LifecycleTest do
     assert Ash.reload!(_a).status == :active
   end
 
+  test "a MatchRuleSet activates and supersedes per golden resource" do
+    alias AshMdm.Fixtures.MatchRuleSet
+
+    rules = [
+      %{"name" => "email_exact", "kind" => "exact", "fields" => ["email"], "weight" => 1.0}
+    ]
+
+    v1 =
+      MatchRuleSet
+      |> Ash.Changeset.for_create(:draft, %{golden_resource: "Person", rules: rules},
+        authorize?: false
+      )
+      |> Ash.create!(authorize?: false)
+
+    v1 =
+      v1
+      |> Ash.Changeset.for_update(:activate, %{}, authorize?: false)
+      |> Ash.update!(authorize?: false)
+
+    v2 =
+      MatchRuleSet
+      |> Ash.Changeset.for_create(:draft, %{golden_resource: "Person", rules: rules},
+        authorize?: false
+      )
+      |> Ash.create!(authorize?: false)
+      |> Ash.Changeset.for_update(:activate, %{}, authorize?: false)
+      |> Ash.update!(authorize?: false)
+
+    assert v2.status == :active
+    assert Ash.reload!(v1).status == :retired
+  end
+
   test "retire moves an active version out" do
     v1 = draft!(field_rules: valid_rules()) |> activate_validated!()
     retired = v1 |> Ash.Changeset.for_update(:retire, %{}, authorize?: false) |> Ash.update!()

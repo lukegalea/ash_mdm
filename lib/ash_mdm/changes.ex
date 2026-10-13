@@ -143,3 +143,33 @@ defmodule AshMdm.Changes.Activate do
     changeset
   end
 end
+
+defmodule AshMdm.Changes.ActivateRuleSet do
+  @moduledoc """
+  draft -> active for a MatchRuleSet, retiring the previously active set
+  for the same golden resource (same supersede semantics as Mapping).
+  """
+
+  use Ash.Resource.Change
+  require Ash.Query
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      resource = Ash.Changeset.get_attribute(changeset, :golden_resource)
+
+      changeset.resource
+      |> Ash.Query.filter(
+        golden_resource == ^resource and status == :active and id != ^changeset.data.id
+      )
+      |> Ash.read!(tenant: changeset.tenant, authorize?: false)
+      |> Enum.each(fn predecessor ->
+        predecessor
+        |> Ash.Changeset.for_update(:retire, %{})
+        |> Ash.update!(authorize?: false)
+      end)
+
+      Ash.Changeset.force_change_attribute(changeset, :status, :active)
+    end)
+  end
+end

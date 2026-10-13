@@ -233,6 +233,157 @@ defmodule AshMdm.Resources do
     end
   end
 
+  defmacro __using__({:match_rule_set, opts}) do
+    opts = Keyword.validate!(opts, [:repo, :table])
+    repo = Keyword.fetch!(opts, :repo)
+    table = Keyword.fetch!(opts, :table)
+
+    quote location: :keep do
+      attributes do
+        uuid_primary_key :id
+
+        attribute :golden_resource, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 256
+        end
+
+        attribute :rules, {:array, :map} do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :status, :atom do
+          allow_nil? false
+          public? true
+          default :draft
+          constraints one_of: [:draft, :active, :retired]
+        end
+
+        attribute :version, :integer do
+          allow_nil? false
+          public? true
+          default 1
+        end
+
+        attribute :root_id, :uuid do
+          public? true
+        end
+
+        attribute :supersedes_id, :uuid do
+          public? true
+        end
+
+        attribute :content_hash, :string do
+          public? true
+        end
+
+        create_timestamp :inserted_at
+        update_timestamp :updated_at
+      end
+
+      actions do
+        read :read do
+          primary? true
+        end
+
+        create :draft do
+          accept [:golden_resource, :rules]
+          change AshMdm.Changes.SetContentHash
+          change AshMdm.Changes.OpenVersionChain
+        end
+
+        update :activate do
+          accept []
+          validate attribute_equals(:status, :draft)
+          require_atomic? false
+          change AshMdm.Changes.ActivateRuleSet
+        end
+
+        update :retire do
+          accept []
+          validate attribute_equals(:status, :active)
+          change set_attribute(:status, :retired)
+        end
+      end
+
+      postgres do
+        repo(unquote(repo))
+        table unquote(table)
+      end
+    end
+  end
+
+  defmacro __using__({:match_candidate, _opts}) do
+    quote location: :keep do
+      attributes do
+        uuid_primary_key :id
+
+        attribute :staged_record_id, :uuid do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :golden_resource, :string do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :golden_id, :uuid do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :score, :decimal do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :explanation, :map do
+          public? true
+        end
+
+        attribute :band, :atom do
+          public? true
+          constraints one_of: [:admit, :review, :omit]
+          description "Resolved by the host's band table — never by this package."
+        end
+
+        attribute :status, :atom do
+          allow_nil? false
+          public? true
+          default :pending
+          constraints one_of: [:pending, :auto_merged, :confirmed, :rejected, :superseded]
+        end
+
+        attribute :human_verdict_ref, :map do
+          public? true
+        end
+
+        create_timestamp :inserted_at
+        update_timestamp :updated_at
+      end
+
+      identities do
+        identity :one_pair, [:staged_record_id, :golden_resource, :golden_id]
+      end
+
+      actions do
+        read :read do
+          primary? true
+        end
+
+        create :create do
+          accept [:staged_record_id, :golden_resource, :golden_id, :score, :explanation]
+        end
+
+        update :update do
+          accept [:band, :status, :human_verdict_ref]
+        end
+      end
+    end
+  end
+
   defmacro __using__(other) do
     raise ArgumentError, "AshMdm.Resources: unknown resource #{inspect(other)}"
   end
