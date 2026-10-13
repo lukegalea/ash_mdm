@@ -185,51 +185,6 @@ defmodule AshMdm.Mapping.Evaluator do
 
   defp transform("parse_date", %Date{} = d, _args, _opts), do: {:ok, d}
 
-  defp parse_date(v) do
-    case Date.from_iso8601(v) do
-      {:ok, date} ->
-        {:ok, date}
-
-      _ ->
-        # Formats beyond ISO: YYYY/M/D, M/D/YYYY (US), D.M.YYYY (EU).
-        with [] <- iso_like(v, ~r|^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$|),
-             [] <- us_style(v, ~r|^(\d{1,2})/(\d{1,2})/(\d{4})$|),
-             [] <- eu_style(v, ~r|^(\d{1,2})\.(\d{1,2})\.(\d{4})$|) do
-          :error
-        else
-          {:ok, date} -> {:ok, date}
-        end
-    end
-  end
-
-  defp iso_like(v, re) do
-    case Regex.run(re, v) do
-      [_, y, m, d] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
-      _ -> []
-    end
-  end
-
-  defp us_style(v, re) do
-    case Regex.run(re, v) do
-      [_, m, d, y] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
-      _ -> []
-    end
-  end
-
-  defp eu_style(v, re) do
-    case Regex.run(re, v) do
-      [_, d, m, y] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
-      _ -> []
-    end
-  end
-
-  defp date(y, m, d) do
-    case Date.new(y, m, d) do
-      {:ok, date} -> {:ok, date}
-      _ -> []
-    end
-  end
-
   defp transform("parse_decimal", v, _args, _opts) do
     cleaned =
       v
@@ -345,5 +300,50 @@ defmodule AshMdm.Mapping.Evaluator do
     String.to_existing_atom(s)
   rescue
     ArgumentError -> nil
+  end
+
+  defp parse_date(v) do
+    case Date.from_iso8601(v) do
+      {:ok, date} ->
+        {:ok, date}
+
+      _ ->
+        # Formats beyond ISO: YYYY/M/D, M/D/YYYY (US), D.M.YYYY (EU).
+        with [] <- iso_like(v, ~r|^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$|),
+             [] <- us_style(v, ~r|^(\d{1,2})/(\d{1,2})/(\d{4})$|),
+             [] <- eu_style(v, ~r|^(\d{1,2})\.(\d{1,2})\.(\d{4})$|) do
+          :error
+        else
+          {:ok, date} -> {:ok, date}
+        end
+    end
+  end
+
+  defp iso_like(v, re) do
+    case Regex.run(re, v) do
+      [_, y, m, d] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
+      _ -> []
+    end
+  end
+
+  defp us_style(v, re) do
+    case Regex.run(re, v) do
+      [_, m, d, y] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
+      _ -> []
+    end
+  end
+
+  defp eu_style(v, re) do
+    case Regex.run(re, v) do
+      [_, d, m, y] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
+      _ -> []
+    end
+  end
+
+  defp date(y, m, d) do
+    case Date.new(y, m, d) do
+      {:ok, date} -> {:ok, date}
+      _ -> []
+    end
   end
 end
