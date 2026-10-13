@@ -10,9 +10,8 @@ defmodule AshMdm.Changes.SetContentHash do
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
-      case AshMdm.Mapping.ContentHash.hash!(Ash.Changeset.get_attribute(changeset, :field_rules)) do
-        hash -> Ash.Changeset.change_attribute(changeset, :content_hash, hash)
-      end
+      hash = AshMdm.Mapping.ContentHash.hash!(Ash.Changeset.get_attribute(changeset, :field_rules))
+      Ash.Changeset.force_change_attribute(changeset, :content_hash, hash)
     end)
   end
 end
@@ -84,9 +83,11 @@ defmodule AshMdm.Changes.RunValidation do
 
       findings = AshMdm.Mapping.Validator.findings(mapping)
 
+      status = if(findings.errors == [], do: :validated, else: :draft)
+
       changeset
-      |> Ash.Changeset.change_attribute(:validation_findings, findings)
-      |> Ash.Changeset.change_attribute(:status, if(findings.errors == [], do: :validated, else: :draft))
+      |> Ash.Changeset.force_change_attribute(:validation_findings, findings)
+      |> Ash.Changeset.force_change_attribute(:status, status)
     end)
   end
 end

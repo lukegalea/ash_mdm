@@ -246,9 +246,14 @@ defmodule AshMdm.Mapping.Validator do
   end
 
   # Framework-owned attributes a mapping never accounts for: identity,
-  # tenancy, provenance and lifecycle columns are the base's business.
-  defp unaccountable do
-    ~w(id organization_id inserted_at updated_at created_at version_id)a ++
-      ~w(merged master_id)a
-  end
+  # tenancy, provenance and lifecycle columns are the base's business. The
+  # CDM system-attribute set (Dataverse's) is included by name so hosts on
+  # a platform base need no per-host opts.
+  @unaccountable ~w(id organization_id inserted_at updated_at created_at version_id
+    merged master_id
+    created_on modified_on created_by_id modified_by_id created_on_behalf_by_id
+    modified_on_behalf_by_id overridden_created_on import_sequence_number version_number
+    state_code status_code lifecycle_status owning_business_unit_id)a
+
+  defp unaccountable, do: @unaccountable
 end
