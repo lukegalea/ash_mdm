@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Luke Galea
+#
+# SPDX-License-Identifier: MIT
+
+version = 1
+
+# Source files carry their own SPDX header; this annotation covers everything
+# else so `reuse lint` stays clean from day one.
+[[annotations]]
+path = [
+  ".formatter.exs",
+  ".github/**/*.yml",
+  ".gitignore",
+  "README.md",
+  "REUSE.toml",
+  "docs/**/*.md",
+  "mix.lock",
+  "priv/resource_snapshots/**/*.json",
+  "priv/test_repo/migrations/*.exs",
+  "usage-rules.md",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Luke Galea"
+SPDX-License-Identifier = "MIT"
