@@ -34,12 +34,21 @@ defmodule AshMdm.Mapping.EvaluatorTest do
                {:ok, %{"n" => 42}}
     end
 
-    test "parse_date handles ISO and enterprise shapes" do
+    test "parse_date handles ISO and declared-order enterprise shapes" do
       rules = [rule("joined_on", "joined_on", "parse_date")]
+      mdy = [rule("joined_on", "joined_on", "parse_date", %{"order" => "mdy"})]
+      dmy = [rule("joined_on", "joined_on", "parse_date", %{"order" => "dmy"})]
 
       assert run(rules, %{"joined_on" => "2026-01-31"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
-      assert run(rules, %{"joined_on" => "01/31/2026"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
-      assert run(rules, %{"joined_on" => "31.01.2026"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
+      assert run(mdy, %{"joined_on" => "01/31/2026"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
+      assert run(dmy, %{"joined_on" => "31.01.2026"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
+
+      # 03/04/2026 is March 4 under mdy and April 3 under dmy — the other
+      # convention refuses rather than silently swapping day and month.
+      assert run(mdy, %{"joined_on" => "03/04/2026"}) == {:ok, %{"joined_on" => ~D[2026-03-04]}}
+      assert run(dmy, %{"joined_on" => "03/04/2026"}) == {:ok, %{"joined_on" => ~D[2026-04-03]}}
+      assert {:error, {:rule, _, {:unparseable_date, "03/04/2026"}}} =
+               run(rules, %{"joined_on" => "03/04/2026"})
 
       assert {:error, {:rule, _, {:unparseable_date, "not a date"}}} =
                run(rules, %{"joined_on" => "not a date"})
@@ -128,11 +137,17 @@ defmodule AshMdm.Mapping.EvaluatorTest do
                {:ok, %{"email" => "a@b.c"}}
     end
 
-    test "[] descends into a list and takes the first element" do
-      payload = %{"Contacts" => [%{"Email" => "first@x.io"}, %{"Email" => "second@x.io"}]}
+    test "[] takes a single element but REFUSES an ambiguous list" do
+      one = %{"Contacts" => [%{"Email" => "only@x.io"}]}
+      many = %{"Contacts" => [%{"Email" => "first@x.io"}, %{"Email" => "second@x.io"}]}
 
-      assert run([rule("Contacts[].Email", "email", "identity")], payload) ==
-               {:ok, %{"email" => "first@x.io"}}
+      assert run([rule("Contacts[].Email", "email", "identity")], one) ==
+               {:ok, %{"email" => "only@x.io"}}
+
+      # Several contacts: importing one and dropping the rest silently is
+      # data loss; the row is refused with a named reason instead.
+      assert {:error, {:rule, _, :ambiguous_list}} =
+               run([rule("Contacts[].Email", "email", "identity")], many)
     end
 
     test "missing path is a rule error naming the path" do

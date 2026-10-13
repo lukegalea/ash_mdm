@@ -41,11 +41,13 @@ defmodule AshMdm.Mapping.Validator do
     errors =
       [
         unknown_ops(rules),
+        unknown_targets(mapping.target_resource),
         unaccounted_targets(rules, target),
         decode_problems(rules, mapping.observed_schema),
         missing_required_paths(rules, mapping.observed_schema),
         cast_mismatches(rules, target),
-        egress_read_only(rules, mapping.direction)
+        egress_read_only(rules, mapping.direction),
+        ambiguous_date_orders(rules, mapping.observed_schema)
       ]
       |> Enum.concat()
 
@@ -220,6 +222,22 @@ defmodule AshMdm.Mapping.Validator do
     end)
   end
 
+  # ── 5b. ambiguous date orders ─────────────────────────────────────────────
+
+  @slash_date ~r|^\d{1,2}[\/.]\d{1,2}[\/.]\d{4}$|
+
+  defp ambiguous_date_orders(rules, observed_schema) do
+    for rule <- rules,
+        is_map(rule),
+        rule["op"] == "parse_date",
+        rule["args"]["order"] not in ["mdy", "dmy"],
+        observed = observed_values(observed_schema, rule["path"]),
+        is_list(observed),
+        Enum.any?(observed, &(is_binary(&1) and Regex.match?(@slash_date, String.trim(&1)))) do
+      %{check: :ambiguous_date_order, path: rule["path"], target: rule["target"]}
+    end
+  end
+
   # ── 6. egress read-only refusal ───────────────────────────────────────────
 
   defp egress_read_only(rules, direction) do
@@ -236,10 +254,38 @@ defmodule AshMdm.Mapping.Validator do
 
   # ── target introspection ──────────────────────────────────────────────────
 
-  defp target_attributes(name, opts) when is_binary(name) do
-    case Module.concat([name]) |> Code.ensure_compiled() do
-      {:module, mod} -> target_attributes(mod, opts)
-      _ -> {:unknown_target, name}
+  # The host supplies its golden-resource allowlist as config — a mapping
+  # may only target what the host declares. Resolving arbitrary user input
+  # with Module.concat would mint atoms (Iron Law #10) and let a mapping
+  # point at any compiled resource.
+  defp unknown_targets(name) do
+    allowlisted? =
+      case Application.get_env(:ash_mdm, :allowed_targets) do
+        m when is_map(m) -> Map.has_key?(m, name)
+        _ -> false
+      end
+
+    if allowlisted? do
+      []
+    else
+      # FAIL CLOSED: no allowlist configured, or a target outside it, is an
+      # error — never an unaccounted free pass.
+      [%{check: :unknown_target, target: name}]
+    end
+  end
+
+  defp target_attributes(name, _opts) when is_binary(name) do
+    allowlist = Application.get_env(:ash_mdm, :allowed_targets)
+
+    module =
+      case allowlist do
+        m when is_map(m) -> Map.get(m, name)
+        _ -> nil
+      end
+
+    case module do
+      nil -> {:unknown_target, name}
+      mod -> target_attributes(mod, [])
     end
   end
 

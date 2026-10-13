@@ -54,11 +54,28 @@ defmodule AshMdm.Mapping.Evaluator do
   defp apply_rule(%{"op" => op} = rule, payload, opts) do
     if op in @ops do
       case op do
-        # coalesce resolves its own ordered fallback paths; the rule's `path`
-        # (if any) is simply the first of them.
+        # coalesce and concat resolve their own paths against the payload.
         "coalesce" ->
           paths = (rule["args"]["paths"] || []) ++ List.wrap(rule["path"])
           first_present(paths, payload, rule)
+
+        "concat" ->
+          paths = (rule["args"]["paths"] || []) ++ List.wrap(rule["path"])
+
+          parts =
+            Enum.map(paths, fn path ->
+              case get_path(payload, path) do
+                {:ok, nil} -> nil
+                {:ok, value} -> to_string(value)
+                :error -> nil
+              end
+            end)
+
+          if Enum.all?(parts, &is_nil/1) do
+            {:error, {:missing_path, rule["path"]}}
+          else
+            {:ok, Enum.reject(parts, &is_nil/1) |> Enum.join(rule["args"]["separator"] || " ")}
+          end
 
         "constant" ->
           {:ok, rule["args"]["value"]}
@@ -85,6 +102,7 @@ defmodule AshMdm.Mapping.Evaluator do
     case get_path(payload, rule["path"]) do
       {:ok, value} -> {:ok, value}
       :error -> {:error, {:missing_path, rule["path"]}}
+      {:error, reason} when is_tuple(reason) or is_atom(reason) -> {:error, reason}
     end
   end
 
@@ -94,6 +112,7 @@ defmodule AshMdm.Mapping.Evaluator do
     case get_path(payload, path) do
       {:ok, nil} -> first_present(rest, payload, rule)
       {:ok, value} -> {:ok, value}
+      {:error, reason} when is_tuple(reason) or is_atom(reason) -> {:error, reason}
       :error -> first_present(rest, payload, rule)
     end
   end
@@ -106,6 +125,11 @@ defmodule AshMdm.Mapping.Evaluator do
     segments = String.split(path, ".")
 
     Enum.reduce(segments, {:ok, payload}, fn
+      # A named reason (ambiguous list, non-list descent) propagates — it
+      # is data the steward must see, not a generic "missing".
+      _segment, {:error, _reason} = err ->
+        err
+
       _segment, :error ->
         :error
 
@@ -127,9 +151,16 @@ defmodule AshMdm.Mapping.Evaluator do
             case Map.get(current, k) do
               value when descend? and is_list(value) ->
                 case value do
-                  [first | _] -> {:ok, first}
+                  # ONE element: deterministic. Several: refusing beats
+                  # silently importing the first and dropping the rest —
+                  # that is silent data loss in a master-data import.
+                  [first] -> {:ok, first}
                   [] -> :error
+                  _multi -> {:error, :ambiguous_list}
                 end
+
+              value when descend? ->
+                {:error, {:not_a_list, value}}
 
               value ->
                 {:ok, value}
@@ -176,8 +207,15 @@ defmodule AshMdm.Mapping.Evaluator do
 
   defp transform("case", v, _args, _opts), do: {:error, {:not_a_string, v}}
 
-  defp transform("parse_date", v, _args, _opts) when is_binary(v) do
-    case parse_date(String.trim(v)) do
+  defp transform("parse_date", v, args, _opts) when is_binary(v) do
+    order =
+      case args["order"] do
+        "mdy" -> :mdy
+        "dmy" -> :dmy
+        _ -> :none
+      end
+
+    case parse_date(String.trim(v), order) do
       {:ok, date} -> {:ok, date}
       :error -> {:error, {:unparseable_date, v}}
     end
@@ -208,11 +246,6 @@ defmodule AshMdm.Mapping.Evaluator do
   end
 
   defp transform("decode", _v, _args, _opts), do: {:error, {:missing_decode_table, nil}}
-
-  defp transform("concat", _v, args, _opts) do
-    parts = args["literals"] || []
-    {:ok, Enum.map_join(parts, args["separator"] || " ", &to_string/1)}
-  end
 
   defp transform("regex_extract", v, args, _opts) when is_binary(v) do
     case Regex.compile(args["pattern"] || "") do
@@ -302,16 +335,17 @@ defmodule AshMdm.Mapping.Evaluator do
     ArgumentError -> nil
   end
 
-  defp parse_date(v) do
+  defp parse_date(v, order) do
     case Date.from_iso8601(v) do
       {:ok, date} ->
         {:ok, date}
 
       _ ->
-        # Formats beyond ISO: YYYY/M/D, M/D/YYYY (US), D.M.YYYY (EU).
+        # Formats beyond ISO: YYYY/M/D is unambiguous; M/D vs D.M needs an
+        # explicit order — 03/04/2026 silently swapped is exactly the
+        # cross-region data error a master-data import must never commit.
         with [] <- iso_like(v, ~r|^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$|),
-             [] <- us_style(v, ~r|^(\d{1,2})/(\d{1,2})/(\d{4})$|),
-             [] <- eu_style(v, ~r|^(\d{1,2})\.(\d{1,2})\.(\d{4})$|) do
+             [] <- ordered_style(v, ~r|^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$|, order) do
           :error
         else
           {:ok, date} -> {:ok, date}
@@ -326,19 +360,21 @@ defmodule AshMdm.Mapping.Evaluator do
     end
   end
 
-  defp us_style(v, re) do
+  # Slash/dot styles resolve ONLY when the rule declared the order; the
+  # other convention then refuses rather than silently swapping day/month.
+  # The order is the WRITER's convention, independent of the punctuation.
+  defp ordered_style(v, re, order) when order in [:mdy, :dmy] do
     case Regex.run(re, v) do
-      [_, m, d, y] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
-      _ -> []
+      [_, a, b, y] ->
+        {m, d} = if order == :mdy, do: {a, b}, else: {b, a}
+        date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
+
+      _ ->
+        []
     end
   end
 
-  defp eu_style(v, re) do
-    case Regex.run(re, v) do
-      [_, d, m, y] -> date(String.to_integer(y), String.to_integer(m), String.to_integer(d))
-      _ -> []
-    end
-  end
+  defp ordered_style(_v, _re, _none), do: []
 
   defp date(y, m, d) do
     case Date.new(y, m, d) do

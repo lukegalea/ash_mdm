@@ -18,4 +18,8 @@ config :ash_mdm, AshMdm.Test.Repo,
 
 config :ash, disable_async?: true
 
+config :ash_mdm, :allowed_targets, %{
+  "AshMdm.Fixtures.Person" => AshMdm.Fixtures.Person
+}
+
 config :logger, level: :warning
