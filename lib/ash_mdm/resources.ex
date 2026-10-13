@@ -45,7 +45,12 @@ defmodule AshMdm.Resources do
     repo = Keyword.fetch!(opts, :repo)
     table = Keyword.fetch!(opts, :table)
     tenant? = Keyword.fetch!(opts, :tenant?)
-    index_cols = if tenant?, do: [:organization_id, :direction, :source, :stream, :target_resource], else: [:direction, :source, :stream, :target_resource]
+
+    index_cols =
+      if tenant?,
+        do: [:organization_id, :direction, :source, :stream, :target_resource],
+        else: [:direction, :source, :stream, :target_resource]
+
     index_name = :"#{table}_one_active"
 
     quote location: :keep do
@@ -116,6 +121,7 @@ defmodule AshMdm.Resources do
 
         attribute :content_hash, :string do
           public? true
+
           description "SHA-256 over canonical field_rules JSON (AshMdm.Mapping.ContentHash). Batches pin this at open."
         end
 
@@ -139,8 +145,16 @@ defmodule AshMdm.Resources do
 
         create :draft do
           description "A new mapping version chain, starting at version 1, status draft."
-          accept [:direction, :source, :stream, :target_resource, :field_rules,
-                  :observed_schema, :activation_note]
+
+          accept [
+            :direction,
+            :source,
+            :stream,
+            :target_resource,
+            :field_rules,
+            :observed_schema,
+            :activation_note
+          ]
 
           change AshMdm.Changes.SetContentHash
           change AshMdm.Changes.OpenVersionChain
@@ -158,8 +172,15 @@ defmodule AshMdm.Resources do
             allow_nil? false
           end
 
-          accept [:direction, :source, :stream, :target_resource, :field_rules,
-                  :observed_schema, :activation_note]
+          accept [
+            :direction,
+            :source,
+            :stream,
+            :target_resource,
+            :field_rules,
+            :observed_schema,
+            :activation_note
+          ]
 
           change AshMdm.Changes.SetContentHash
           change AshMdm.Changes.LinkVersionChain
@@ -198,14 +219,15 @@ defmodule AshMdm.Resources do
       end
 
       postgres do
-        repo unquote(repo)
+        repo(unquote(repo))
         table unquote(table)
 
         custom_indexes do
-          index unquote(Macro.escape(index_cols)),
+          index(unquote(Macro.escape(index_cols)),
             unique: true,
             where: "status = 'active'",
             name: unquote(to_string(index_name))
+          )
         end
       end
     end

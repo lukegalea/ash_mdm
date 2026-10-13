@@ -10,7 +10,9 @@ defmodule AshMdm.Changes.SetContentHash do
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
-      hash = AshMdm.Mapping.ContentHash.hash!(Ash.Changeset.get_attribute(changeset, :field_rules))
+      hash =
+        AshMdm.Mapping.ContentHash.hash!(Ash.Changeset.get_attribute(changeset, :field_rules))
+
       Ash.Changeset.force_change_attribute(changeset, :content_hash, hash)
     end)
   end

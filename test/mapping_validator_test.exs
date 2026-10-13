@@ -18,13 +18,34 @@ defmodule AshMdm.Mapping.ValidatorTest do
       target_resource: @target,
       observed_schema: %{"Email" => %{"type" => "string"}, "Full Name" => %{"type" => "string"}},
       field_rules: [
-        %{"path" => "Email", "target" => "email", "op" => "trim", "args" => %{}, "required" => true},
+        %{
+          "path" => "Email",
+          "target" => "email",
+          "op" => "trim",
+          "args" => %{},
+          "required" => true
+        },
         %{"path" => "Full Name", "target" => "name", "op" => "identity", "args" => %{}},
-        %{"path" => "Since", "target" => "joined_on", "op" => "parse_date", "args" => %{},
-          "required" => false},
-        %{"path" => nil, "target" => "tier", "op" => "constant", "args" => %{"value" => "bronze"}},
-        %{"path" => nil, "target" => "unknown_attr", "op" => "unmapped",
-          "args" => %{}, "because" => "source never carries it"}
+        %{
+          "path" => "Since",
+          "target" => "joined_on",
+          "op" => "parse_date",
+          "args" => %{},
+          "required" => false
+        },
+        %{
+          "path" => nil,
+          "target" => "tier",
+          "op" => "constant",
+          "args" => %{"value" => "bronze"}
+        },
+        %{
+          "path" => nil,
+          "target" => "unknown_attr",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "source never carries it"
+        }
       ]
     }
 
@@ -54,10 +75,20 @@ defmodule AshMdm.Mapping.ValidatorTest do
       field_rules: [
         %{"path" => "Email", "target" => "email", "op" => "identity", "args" => %{}},
         %{"path" => nil, "target" => "name", "op" => "unmapped", "args" => %{}},
-        %{"path" => nil, "target" => "tier", "op" => "unmapped", "args" => %{},
-          "because" => "not carried"},
-        %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-          "because" => "not carried"}
+        %{
+          "path" => nil,
+          "target" => "tier",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "not carried"
+        },
+        %{
+          "path" => nil,
+          "target" => "joined_on",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "not carried"
+        }
       ]
     }
 
@@ -73,12 +104,20 @@ defmodule AshMdm.Mapping.ValidatorTest do
         %{"path" => "Email", "target" => "email", "op" => "eval", "args" => %{}},
         %{"path" => nil, "target" => "name", "op" => "unmapped", "args" => %{}, "because" => "x"},
         %{"path" => nil, "target" => "tier", "op" => "unmapped", "args" => %{}, "because" => "x"},
-        %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-          "because" => "x"}
+        %{
+          "path" => nil,
+          "target" => "joined_on",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "x"
+        }
       ]
     }
 
-    assert Enum.any?(Validator.findings(mapping).errors, &(&1.check == :unknown_op and &1.op == "eval"))
+    assert Enum.any?(
+             Validator.findings(mapping).errors,
+             &(&1.check == :unknown_op and &1.op == "eval")
+           )
   end
 
   test "non-injective decode reports the colliding keys" do
@@ -88,11 +127,20 @@ defmodule AshMdm.Mapping.ValidatorTest do
       observed_schema: %{"Tier" => %{"values" => ["P", "S", "X"]}},
       field_rules: [
         %{"path" => "Email", "target" => "email", "op" => "identity", "args" => %{}},
-        %{"path" => "Tier", "target" => "tier", "op" => "decode",
-          "args" => %{"table" => %{"P" => "premium", "S" => "premium", "X" => "standard"}}},
+        %{
+          "path" => "Tier",
+          "target" => "tier",
+          "op" => "decode",
+          "args" => %{"table" => %{"P" => "premium", "S" => "premium", "X" => "standard"}}
+        },
         %{"path" => nil, "target" => "name", "op" => "unmapped", "args" => %{}, "because" => "x"},
-        %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-          "because" => "x"}
+        %{
+          "path" => nil,
+          "target" => "joined_on",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "x"
+        }
       ]
     }
 
@@ -112,15 +160,27 @@ defmodule AshMdm.Mapping.ValidatorTest do
       observed_schema: %{"Tier" => %{"values" => ["P", "Q"]}},
       field_rules: [
         %{"path" => "Email", "target" => "email", "op" => "identity", "args" => %{}},
-        %{"path" => "Tier", "target" => "tier", "op" => "decode",
-          "args" => %{"table" => %{"P" => "premium"}}},
+        %{
+          "path" => "Tier",
+          "target" => "tier",
+          "op" => "decode",
+          "args" => %{"table" => %{"P" => "premium"}}
+        },
         %{"path" => nil, "target" => "name", "op" => "unmapped", "args" => %{}, "because" => "x"},
-        %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-          "because" => "x"}
+        %{
+          "path" => nil,
+          "target" => "joined_on",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "x"
+        }
       ]
     }
 
-    assert Enum.any?(Validator.findings(mapping).errors, &(&1.check == :decode_not_total and &1.value == "Q"))
+    assert Enum.any?(
+             Validator.findings(mapping).errors,
+             &(&1.check == :decode_not_total and &1.value == "Q")
+           )
   end
 
   test "a required rule whose path the schema never observed is an error" do
@@ -129,16 +189,29 @@ defmodule AshMdm.Mapping.ValidatorTest do
       target_resource: @target,
       observed_schema: %{"Full Name" => %{}},
       field_rules: [
-        %{"path" => "Email", "target" => "email", "op" => "identity", "args" => %{},
-          "required" => true},
+        %{
+          "path" => "Email",
+          "target" => "email",
+          "op" => "identity",
+          "args" => %{},
+          "required" => true
+        },
         %{"path" => "Full Name", "target" => "name", "op" => "identity", "args" => %{}},
         %{"path" => nil, "target" => "tier", "op" => "unmapped", "args" => %{}, "because" => "x"},
-        %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-          "because" => "x"}
+        %{
+          "path" => nil,
+          "target" => "joined_on",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "x"
+        }
       ]
     }
 
-    assert Enum.any?(Validator.findings(mapping).errors, &(&1.check == :required_path_not_observed and &1.path == "Email"))
+    assert Enum.any?(
+             Validator.findings(mapping).errors,
+             &(&1.check == :required_path_not_observed and &1.path == "Email")
+           )
   end
 
   test "cast must declare the target's own type" do
@@ -147,9 +220,19 @@ defmodule AshMdm.Mapping.ValidatorTest do
       target_resource: @target,
       observed_schema: %{"Since" => %{}},
       field_rules: [
-        %{"path" => "Since", "target" => "joined_on", "op" => "cast",
-          "args" => %{"type" => "integer"}},
-        %{"path" => nil, "target" => "email", "op" => "unmapped", "args" => %{}, "because" => "x"},
+        %{
+          "path" => "Since",
+          "target" => "joined_on",
+          "op" => "cast",
+          "args" => %{"type" => "integer"}
+        },
+        %{
+          "path" => nil,
+          "target" => "email",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "x"
+        },
         %{"path" => nil, "target" => "name", "op" => "unmapped", "args" => %{}, "because" => "x"},
         %{"path" => nil, "target" => "tier", "op" => "unmapped", "args" => %{}, "because" => "x"}
       ]
@@ -165,16 +248,29 @@ defmodule AshMdm.Mapping.ValidatorTest do
       target_resource: @target,
       observed_schema: %{"Email" => %{}},
       field_rules: [
-        %{"path" => "email", "target" => "email", "op" => "identity", "args" => %{},
-          "read_only" => true},
+        %{
+          "path" => "email",
+          "target" => "email",
+          "op" => "identity",
+          "args" => %{},
+          "read_only" => true
+        },
         %{"path" => nil, "target" => "name", "op" => "unmapped", "args" => %{}, "because" => "x"},
         %{"path" => nil, "target" => "tier", "op" => "unmapped", "args" => %{}, "because" => "x"},
-        %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-          "because" => "x"}
+        %{
+          "path" => nil,
+          "target" => "joined_on",
+          "op" => "unmapped",
+          "args" => %{},
+          "because" => "x"
+        }
       ]
     }
 
-    assert Enum.any?(Validator.findings(mapping).errors, &(&1.check == :egress_read_only_rule and &1.target == "email"))
+    assert Enum.any?(
+             Validator.findings(mapping).errors,
+             &(&1.check == :egress_read_only_rule and &1.target == "email")
+           )
   end
 
   test "an unresolvable target resource skips accounting (documented escape, not a pass-through)" do

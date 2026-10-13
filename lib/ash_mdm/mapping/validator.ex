@@ -129,7 +129,12 @@ defmodule AshMdm.Mapping.Validator do
       |> Enum.group_by(fn {_k, v} -> to_string(v) end, fn {k, _} -> k end)
       |> Enum.filter(fn {_decoded, keys} -> length(keys) > 1 end)
       |> Enum.map(fn {decoded, keys} ->
-        %{check: :decode_not_injective, decoded: decoded, keys: Enum.sort(keys), target: rule["target"]}
+        %{
+          check: :decode_not_injective,
+          decoded: decoded,
+          keys: Enum.sort(keys),
+          target: rule["target"]
+        }
       end)
 
     # Totality against observed values, when the schema observed any.
@@ -182,8 +187,6 @@ defmodule AshMdm.Mapping.Validator do
 
     Enum.any?(schema, fn {key, _} -> to_string(key) == root end)
   end
-
-  defp path_observed?(_schema, _path), do: true
 
   # ── 5. cast compatibility ─────────────────────────────────────────────────
 

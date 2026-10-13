@@ -110,11 +110,9 @@ defmodule AshMdm.Mapping.Evaluator do
         :error
 
       segment, {:ok, current} when is_map(current) ->
-        {field, descend?} =
-          case segment do
-            <<base::binary-size(byte_size(segment) - 2)>> <> "[]" -> {base, true}
-            _ -> {segment, false}
-          end
+        descend? = String.ends_with?(segment, "[]")
+        prefix_len = byte_size(segment) - 2
+        field = if descend?, do: binary_part(segment, 0, prefix_len), else: segment
 
         key =
           Enum.find([field, safe_atom(field)], fn k ->
@@ -240,7 +238,6 @@ defmodule AshMdm.Mapping.Evaluator do
       |> String.replace(",", "")
 
     case Decimal.parse(cleaned) do
-      %Decimal{} = dec -> {:ok, dec}
       {dec, ""} when is_struct(dec, Decimal) -> {:ok, dec}
       _ -> {:error, {:unparseable_decimal, v}}
     end
@@ -287,15 +284,25 @@ defmodule AshMdm.Mapping.Evaluator do
   defp transform("uuid_v5", v, args, _opts) do
     namespace =
       case args["namespace"] do
-        "dns" -> <<0x6B, 0xA7, 0xB8, 0x10, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0,
-                   0x4F, 0xD4, 0x30, 0xC8>>
-        "url" -> <<0x6B, 0xA7, 0xB8, 0x11, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0,
-                   0x4F, 0xD4, 0x30, 0xC8>>
-        "oid" -> <<0x6B, 0xA7, 0xB8, 0x12, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0,
-                   0x4F, 0xD4, 0x30, 0xC8>>
-        "x500" -> <<0x6B, 0xA7, 0xB8, 0x14, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0,
-                    0x4F, 0xD4, 0x30, 0xC8>>
-        ns when is_binary(ns) and byte_size(ns) == 16 -> ns
+        "dns" ->
+          <<0x6B, 0xA7, 0xB8, 0x10, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0, 0x4F, 0xD4,
+            0x30, 0xC8>>
+
+        "url" ->
+          <<0x6B, 0xA7, 0xB8, 0x11, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0, 0x4F, 0xD4,
+            0x30, 0xC8>>
+
+        "oid" ->
+          <<0x6B, 0xA7, 0xB8, 0x12, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0, 0x4F, 0xD4,
+            0x30, 0xC8>>
+
+        "x500" ->
+          <<0x6B, 0xA7, 0xB8, 0x14, 0x9D, 0xAD, 0x11, 0xD1, 0x80, 0xB4, 0x00, 0xC0, 0x4F, 0xD4,
+            0x30, 0xC8>>
+
+        ns when is_binary(ns) and byte_size(ns) == 16 ->
+          ns
+
         ns when is_binary(ns) ->
           case Ecto.UUID.cast(ns) do
             {:ok, uuid} -> Ecto.UUID.dump!(uuid)
@@ -330,7 +337,7 @@ defmodule AshMdm.Mapping.Evaluator do
       "date" -> {:ok, Ash.Type.Date}
       "utc_datetime" -> {:ok, Ash.Type.UTCDateTime}
       "map" -> {:ok, Ash.Type.Map}
-      other -> :error
+      _ -> :error
     end
   end
 

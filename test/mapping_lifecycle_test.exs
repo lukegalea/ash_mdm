@@ -25,10 +25,20 @@ defmodule AshMdm.Mapping.LifecycleTest do
     [
       %{"path" => "Email", "target" => "email", "op" => "trim", "args" => %{}},
       %{"path" => "Full Name", "target" => "name", "op" => "identity", "args" => %{}},
-      %{"path" => nil, "target" => "tier", "op" => "unmapped", "args" => %{},
-        "because" => "not carried"},
-      %{"path" => nil, "target" => "joined_on", "op" => "unmapped", "args" => %{},
-        "because" => "not carried"}
+      %{
+        "path" => nil,
+        "target" => "tier",
+        "op" => "unmapped",
+        "args" => %{},
+        "because" => "not carried"
+      },
+      %{
+        "path" => nil,
+        "target" => "joined_on",
+        "op" => "unmapped",
+        "args" => %{},
+        "because" => "not carried"
+      }
     ]
   end
 

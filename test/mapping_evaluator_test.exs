@@ -40,6 +40,7 @@ defmodule AshMdm.Mapping.EvaluatorTest do
       assert run(rules, %{"joined_on" => "2026-01-31"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
       assert run(rules, %{"joined_on" => "01/31/2026"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
       assert run(rules, %{"joined_on" => "31.01.2026"}) == {:ok, %{"joined_on" => ~D[2026-01-31]}}
+
       assert {:error, {:rule, _, {:unparseable_date, "not a date"}}} =
                run(rules, %{"joined_on" => "not a date"})
     end
@@ -99,14 +100,18 @@ defmodule AshMdm.Mapping.EvaluatorTest do
     test "ref_lookup requires a resolver" do
       rule = rule("currency", "currency", "ref_lookup", %{"kind" => "currency"})
 
-      assert {:error, {:rule, _, {:no_ref_resolver, "currency"}}} = run([rule], %{"currency" => "USD"})
+      assert {:error, {:rule, _, {:no_ref_resolver, "currency"}}} =
+               run([rule], %{"currency" => "USD"})
 
-      assert run([rule], %{"currency" => "usd"}, ref_resolver: fn "currency", v -> String.upcase(v) end) ==
+      assert run([rule], %{"currency" => "usd"},
+               ref_resolver: fn "currency", v -> String.upcase(v) end
+             ) ==
                {:ok, %{"currency" => "USD"}}
     end
 
     test "unmapped emits nothing" do
-      assert run([rule(nil, "notes", "unmapped", %{}, %{"because" => "not needed"})], %{}) == {:ok, %{}}
+      assert run([rule(nil, "notes", "unmapped", %{}, %{"because" => "not needed"})], %{}) ==
+               {:ok, %{}}
     end
 
     test "unknown operator is an error, never a fallback" do

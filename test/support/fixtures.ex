@@ -25,7 +25,7 @@ defmodule AshMdm.Fixtures.Person do
 
   postgres do
     table "fixture_people"
-    repo AshMdm.Test.Repo
+    repo(AshMdm.Test.Repo)
   end
 
   attributes do
@@ -42,6 +42,7 @@ defmodule AshMdm.Fixtures.Person do
 
   actions do
     defaults [:read, :destroy]
+
     create :create do
       accept [:name, :email, :tier, :joined_on]
     end
@@ -64,5 +65,5 @@ defmodule AshMdm.Fixtures.Mapping do
     data_layer: AshPostgres.DataLayer
 
   use AshMdm.Resources,
-    {:mapping, repo: AshMdm.Test.Repo, table: "mdm_mappings", tenant?: false}
+      {:mapping, repo: AshMdm.Test.Repo, table: "mdm_mappings", tenant?: false}
 end
