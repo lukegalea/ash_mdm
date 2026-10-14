@@ -104,7 +104,11 @@ defmodule AshMdm.Match do
           {_, text}, acc -> acc + String.length(text)
         end)
 
-      Decimal.from_float(max(0, 1 - dist / max_len))
+      if dist == 0 do
+        Decimal.new(1)
+      else
+        Decimal.from_float(max(0.0, 1 - dist / max_len))
+      end
     end
   end
 end
