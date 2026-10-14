@@ -38,14 +38,24 @@ defmodule AshMdm.Mapping.Validator do
     rules = decode_rules(mapping.field_rules)
     target = target_attributes(mapping.target_resource, opts)
 
+    # Egress reads the mapping backwards: the PATH names the golden
+    # attribute (accounted like ingress targets are), and the TARGET names
+    # the customer's field (checked against their declared shape).
+    direction_errors =
+      if mapping.direction in [:egress, "egress"] do
+        egress_unaccounted(rules, target) ++
+          egress_unknown_targets(rules, mapping.observed_schema)
+      else
+        unaccounted_targets(rules, target) ++ cast_mismatches(rules, target)
+      end
+
     errors =
       [
         unknown_ops(rules),
         unknown_targets(mapping.target_resource),
-        unaccounted_targets(rules, target),
+        direction_errors,
         decode_problems(rules, mapping.observed_schema),
         missing_required_paths(rules, mapping.observed_schema),
-        cast_mismatches(rules, target),
         egress_read_only(rules, mapping.direction),
         ambiguous_date_orders(rules, mapping.observed_schema)
       ]
@@ -94,6 +104,43 @@ defmodule AshMdm.Mapping.Validator do
 
   defp unaccounted_targets(_rules, :unknown_target), do: []
   defp unaccounted_targets(_rules, {:unknown_target, _}), do: []
+
+  # The egress mirror of the same two checks, on path/target instead of
+  # target/path.
+  defp egress_unaccounted(rules, {:ok, target_attrs}) do
+    mapped_paths =
+      rules
+      |> Enum.filter(&is_map/1)
+      # An `unmapped` rule declines a golden attribute by TARGET (its path
+      # is nil); every other rule accounts the attribute it maps FROM.
+      |> Map.new(fn rule ->
+        key = if rule["op"] == "unmapped", do: rule["target"], else: rule["path"]
+        {key, rule}
+      end)
+
+    for %{name: name} <- target_attrs,
+        finding = account_problem(Map.get(mapped_paths, to_string(name)), name),
+        finding != nil do
+      finding
+    end
+  end
+
+  defp egress_unaccounted(_rules, :unknown_target), do: []
+  defp egress_unaccounted(_rules, {:unknown_target, _}), do: []
+
+  defp egress_unknown_targets(rules, observed_schema) do
+    declared = Map.new(observed_schema || %{}, fn {k, _} -> {k, true} end)
+
+    # An  rule produces no output column: its target names the
+    # golden attribute it declines, not a customer field.
+    for rule <- rules,
+        is_map(rule),
+        rule["op"] != "unmapped",
+        target = rule["target"],
+        not Map.has_key?(declared, target) do
+      %{check: :unknown_egress_target, target: target}
+    end
+  end
 
   defp account_problem(nil, name), do: %{check: :unaccounted_target, target: to_string(name)}
 
