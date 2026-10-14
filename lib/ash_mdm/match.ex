@@ -29,7 +29,7 @@ defmodule AshMdm.Match do
   def score(rules, staged_map, golden_map) when is_list(rules) do
     {total_weight, parts} =
       Enum.reduce(rules, {Decimal.new(0), %{}}, fn rule, {w, exp} ->
-        rule_weight = Decimal.from_float(rule_weight(rule))
+        rule_weight = Decimal.from_float(rule_weight(rule) / 1)
         contribution = contribution(rule, staged_map, golden_map)
 
         {Decimal.add(w, rule_weight),
@@ -87,28 +87,45 @@ defmodule AshMdm.Match do
 
   defp similarity(s, g, "jaro"), do: s |> String.jaro_distance(g) |> Decimal.from_float()
 
+  # True Levenshtein: substitutions count once (a naive myers-script
+  # insert/delete count charges two). Small DP fold — the blocker caps
+  # pairs at its LIMIT, so quadratic is bounded per staged record.
   defp similarity(s, g, _levenshtein) do
     max_len = max(String.length(s), String.length(g))
 
     if max_len == 0 do
       Decimal.new(0)
     else
-      # myers_difference/2 returns the edit SCRIPT with RUN-LENGTH ops
-      # ({:ins, "-smith"} is one op for six characters); the distance is
-      # the total length of the non-equal edits.
-      dist =
-        s
-        |> String.myers_difference(g)
-        |> Enum.reduce(0, fn
-          {:eq, _}, acc -> acc
-          {_, text}, acc -> acc + String.length(text)
+      Decimal.from_float(max(0.0, 1 - levenshtein(s, g) / max_len))
+    end
+  end
+
+  @doc false
+  def levenshtein_for_test(s, g), do: levenshtein(s, g)
+
+  defp levenshtein(s, g) do
+    gs = String.graphemes(g)
+
+    initial = Enum.map(0..length(gs), & &1)
+
+    Enum.reduce(String.graphemes(s), initial, fn ch, prev ->
+      {_, rev} =
+        Enum.reduce(Enum.with_index(gs, 1), {Enum.at(prev, 0) + 1, [Enum.at(prev, 0) + 1]}, fn
+          {gc, j}, {_top, acc} ->
+            cost = if ch == gc, do: 0, else: 1
+
+            best =
+              Enum.min([
+                Enum.at(prev, j - 1) + cost,
+                Enum.at(prev, j) + 1,
+                hd(acc) + 1
+              ])
+
+            {best, [best | acc]}
         end)
 
-      if dist == 0 do
-        Decimal.new(1)
-      else
-        Decimal.from_float(max(0.0, 1 - dist / max_len))
-      end
-    end
+      Enum.reverse(rev)
+    end)
+    |> List.last()
   end
 end

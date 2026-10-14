@@ -63,6 +63,13 @@ defmodule AshMdm.MatchTest do
     assert Decimal.eq?(score, Decimal.new("0.75"))
   end
 
+  test "levenshtein distance is the textbook function" do
+    assert Match.levenshtein_for_test("kitten", "sitting") == 3
+    assert Match.levenshtein_for_test("ann existing", "ann existing-smith") == 6
+    assert Match.levenshtein_for_test("", "abc") == 3
+    assert Match.levenshtein_for_test("same", "same") == 0
+  end
+
   test "levenshtein similarity is graded, not binary" do
     rules = [%{"name" => "n", "kind" => "fuzzy", "field" => "name", "weight" => 1.0}]
 
