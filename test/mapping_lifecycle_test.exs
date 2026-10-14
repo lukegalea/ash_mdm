@@ -173,6 +173,34 @@ defmodule AshMdm.Mapping.LifecycleTest do
     assert Ash.reload!(v1).status == :retired
   end
 
+  test "an unknown survivorship strategy is refused at activation" do
+    alias AshMdm.Fixtures.MatchRuleSet
+
+    rules = [%{"name" => "email_exact", "kind" => "exact", "fields" => ["email"], "weight" => 1.0}]
+
+    draft =
+      MatchRuleSet
+      |> Ash.Changeset.for_create(
+        :draft,
+        %{
+          golden_resource: "Person",
+          rules: rules,
+          survivorship: %{"default" => "most_recnt", "source_rank" => ["sf"]}
+        },
+        authorize?: false
+      )
+      |> Ash.create!(authorize?: false)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             draft
+             |> Ash.Changeset.for_update(:activate, %{}, authorize?: false)
+             |> Ash.update(authorize?: false)
+
+    assert Enum.any?(errors, fn e ->
+             e.message =~ "unknown survivorship strategies" and e.message =~ "most_recnt"
+           end)
+  end
+
   test "retire moves an active version out" do
     v1 = draft!(field_rules: valid_rules()) |> activate_validated!()
     retired = v1 |> Ash.Changeset.for_update(:retire, %{}, authorize?: false) |> Ash.update!()

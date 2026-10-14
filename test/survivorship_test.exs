@@ -81,8 +81,10 @@ defmodule AshMdm.SurvivorshipTest do
 
     %{merged: merged, provenance: provenance} = Survivorship.resolve(@policy, records)
 
+    # The miss is RECORDED — "no source had a value" is distinguishable
+    # from "attribute not considered" in the lineage.
     refute Map.has_key?(merged, "fax")
-    refute Map.has_key?(provenance, "fax")
+    assert provenance["fax"] == %{"source" => nil, "strategy" => "non_null"}
   end
 
   test "an unknown strategy resolves nothing for that key" do

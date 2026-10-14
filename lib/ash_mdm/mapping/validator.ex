@@ -295,6 +295,10 @@ defmodule AshMdm.Mapping.Validator do
         mod
         |> Ash.Resource.Info.attributes()
         |> Enum.reject(&(&1.name in unaccountable()))
+        # Total accounting is about the data a source maps onto: internal
+        # state (merge metadata, workflow fields) is framework business,
+        # same as the unaccountable CDM system columns below.
+        |> Enum.reject(&(&1.public? == false))
         |> Enum.map(&%{name: &1.name, type: &1.type})
 
       {:ok, attrs}

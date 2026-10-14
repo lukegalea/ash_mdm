@@ -51,7 +51,7 @@ defmodule AshMdm.Survivorship do
 
         case winner do
           nil ->
-            {m, p}
+            {m, Map.put(p, key, %{"strategy" => strategy, "source" => nil})}
 
           rec ->
             {Map.put(m, key, rec.attributes[key]),
@@ -70,8 +70,9 @@ defmodule AshMdm.Survivorship do
   end
 
   # Records carrying a NON-NIL value for this key compete; the strategy
-  # picks among them. None is possible → the attribute stays absent and
-  # the provenance records the miss.
+  # picks among them. None compete → the attribute stays absent and the
+  # provenance records the miss ("no source had a value"), distinguishable
+  # from "attribute not considered".
   defp pick(key, strategy, source_rank, records) do
     competing = Enum.filter(records, &(not is_nil(rec_get(records, &1, key))))
 

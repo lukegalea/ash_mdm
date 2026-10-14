@@ -274,6 +274,12 @@ defmodule AshMdm.Resources do
           public? true
         end
 
+        attribute :survivorship, :map do
+          public? true
+
+          description "Survivorship policy as data: %{default, attributes, source_rank} per AshMdm.Survivorship."
+        end
+
         attribute :content_hash, :string do
           public? true
         end
@@ -288,7 +294,7 @@ defmodule AshMdm.Resources do
         end
 
         create :draft do
-          accept [:golden_resource, :rules]
+          accept [:golden_resource, :rules, :survivorship]
           change AshMdm.Changes.SetContentHash
           change AshMdm.Changes.OpenVersionChain
         end
@@ -297,6 +303,10 @@ defmodule AshMdm.Resources do
           accept []
           validate attribute_equals(:status, :draft)
           require_atomic? false
+          # Unknown survivorship strategies are refused at activation, the
+          # way unknown mapping operators are: a typo must not silently
+          # merge with the default.
+          validate AshMdm.Validations.ValidSurvivorship
           change AshMdm.Changes.ActivateRuleSet
         end
 
