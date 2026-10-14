@@ -93,14 +93,15 @@ defmodule AshMdm.Match do
     if max_len == 0 do
       Decimal.new(0)
     else
-      # myers_difference/2 returns the edit SCRIPT (equivalent ops count as
-      # one each, including "eq"); the distance is the number of real edits.
+      # myers_difference/2 returns the edit SCRIPT with RUN-LENGTH ops
+      # ({:ins, "-smith"} is one op for six characters); the distance is
+      # the total length of the non-equal edits.
       dist =
         s
         |> String.myers_difference(g)
         |> Enum.reduce(0, fn
           {:eq, _}, acc -> acc
-          {_, _}, acc -> acc + 1
+          {_, text}, acc -> acc + String.length(text)
         end)
 
       Decimal.from_float(max(0, 1 - dist / max_len))
