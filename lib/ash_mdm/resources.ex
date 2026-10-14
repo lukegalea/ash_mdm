@@ -388,7 +388,18 @@ defmodule AshMdm.Resources do
         end
 
         update :update do
-          accept [:band, :status, :human_verdict_ref]
+          accept [:band, :status]
+
+          # :confirmed/:rejected are a person's acts with their own gated
+          # actions; the machine path (:update) may only set machine states —
+          # banding writes :band, the pipeline writes :auto_merged/:superseded.
+          validate attribute_does_not_equal(:status, :confirmed), where: [changing(:status)]
+          validate attribute_does_not_equal(:status, :rejected), where: [changing(:status)]
+        end
+
+        update :record_verdict_ref do
+          description "Stamps the verdict/judgment pointers after a gated decision committed."
+          accept [:human_verdict_ref]
         end
       end
     end
