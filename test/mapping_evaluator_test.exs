@@ -47,6 +47,7 @@ defmodule AshMdm.Mapping.EvaluatorTest do
       # convention refuses rather than silently swapping day and month.
       assert run(mdy, %{"joined_on" => "03/04/2026"}) == {:ok, %{"joined_on" => ~D[2026-03-04]}}
       assert run(dmy, %{"joined_on" => "03/04/2026"}) == {:ok, %{"joined_on" => ~D[2026-04-03]}}
+
       assert {:error, {:rule, _, {:unparseable_date, "03/04/2026"}}} =
                run(rules, %{"joined_on" => "03/04/2026"})
 
