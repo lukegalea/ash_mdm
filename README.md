@@ -77,9 +77,11 @@ the imported people are goldens of their own, and the confirmed match
 folded into its survivor.](docs/screenshots/mdm-golden-lineage.png)
 
 Merge lineage is data (`merged`/`master_id` plus the `SourceIdentity`
-XREF), so "where did this golden come from" is one query — and every
-review-banded match runs the host's `mdm.steward_review` BPMN process,
-where enrichment steps and extra decisions route in.
+XREF), so "where did this golden come from" is one query. Review-banded
+matches run the enterprise host's `mdm.steward_review` BPMN process
+(forkable per tenant), and banding itself is a DMN decision table; the
+import's land/stage/match stages are host code today. These are the
+host's screens — the package ships the engine, not the UI.
 
 ## Status
 

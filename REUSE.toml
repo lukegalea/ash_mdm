@@ -14,6 +14,7 @@ path = [
   "README.md",
   "REUSE.toml",
   "docs/**/*.md",
+  "docs/screenshots/**/*.png",
   "mix.lock",
   "priv/resource_snapshots/**/*.json",
   "priv/test_repo/migrations/*.exs",
