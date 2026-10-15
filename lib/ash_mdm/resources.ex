@@ -36,6 +36,27 @@ defmodule AshMdm.Resources do
       `organization_id` (a platform base with `tenant?: true`). Adds the
       column to the one-active index and scopes activation-supersedence to
       the tenant.
+
+  ## `:match_rule_set`
+
+  One row per version of the match rules for a golden resource: `rules`
+  (scored by `AshMdm.Match`) and a `survivorship` policy (folded by
+  `AshMdm.Survivorship`). `:draft` -> `:activate` -> `:retire`; activation
+  retires the previously active set for the same `golden_resource` and
+  refuses unknown survivorship strategies
+  (`AshMdm.Validations.ValidSurvivorship`). Options:
+
+    * `:repo`, `:table` — required; the macro owns the `postgres` block.
+
+  ## `:match_candidate`
+
+  One row per (staged record, golden record) pair — identity `:one_pair` —
+  with `score`, `explanation`, a host-resolved `band` and a `status`.
+  The machine `:update` may set `:band` and the machine statuses but refuses
+  `:confirmed`/`:rejected`, which are a person's acts on host-defined gated
+  actions; `:record_verdict_ref` stamps `human_verdict_ref` afterwards.
+  Takes no options and emits no `postgres` block: the host supplies the
+  data layer config.
   """
 
   defmacro __using__(which)
@@ -79,7 +100,7 @@ defmodule AshMdm.Resources do
           allow_nil? false
           public? true
 
-          description "Module name of the golden entity, resolved against the host's own allowlist by policy — never against this package."
+          description "Module name of the golden entity, resolved against the host's `config :ash_mdm, :allowed_targets` allowlist; a name outside it fails validation."
         end
 
         attribute :field_rules, {:array, :map} do

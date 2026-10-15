@@ -28,7 +28,8 @@ egress-aware path/target semantics, decode totality + injectivity, required
 paths, cast compatibility), `AshMdm.Mapping.ContentHash` (SHA-256 over the
 canonical rule JSON), `AshMdm.Changes` (content hash, version chain, run
 validation, activation), `AshMdm.Validations.ValidSurvivorship` (declared
-survivorship must name real strategies), `AshMdm.Survivorship`.
+survivorship must name real strategies), `AshMdm.Survivorship` (the
+survivorship fold), `AshMdm.Match` (the match scorer).
 
 ## The no-deploy guarantee
 
@@ -47,7 +48,7 @@ runtime.
   validation.
 - **Activation** retires the predecessor and is audited like every other
   write. Person-gating the activation (and the steward's confirm/reject) is
-  host policy — the package's own tests refuse system actors by default.
+  host policy — the package declares no policies of its own.
 - The machine `:update` on candidates cannot write person states
   (`:confirmed`/`:rejected` ride their own gated actions).
 
