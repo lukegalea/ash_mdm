@@ -15,6 +15,7 @@ path = [
   "REUSE.toml",
   "docs/**/*.md",
   "docs/screenshots/**/*.png",
+  "lib/ash_mdm.ex",
   "mix.lock",
   "priv/resource_snapshots/**/*.json",
   "priv/test_repo/migrations/*.exs",
