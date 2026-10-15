@@ -51,6 +51,36 @@ runtime.
 - The machine `:update` on candidates cannot write person states
   (`:confirmed`/`:rejected` ride their own gated actions).
 
+## The steward UI
+
+The host ships a full import → resolve → review flow at `/app/mdm/*`.
+
+![The import wizard's mapping step: the CSV's columns mapped onto the golden
+Person record by the AI proposal, with the active mappings listed as
+data.](docs/screenshots/mdm-import-mapping.png)
+
+Mapping a new customer schema is a draft the machine proposes and a person
+activates — never a release. Total accounting is the activation gate: every
+golden attribute is mapped, or explicitly unmapped with a because.
+
+![The steward queue's side-by-side diff: the staged record's values against
+the golden's, with the survivorship winner highlighted — the golden's own
+values beat a fold.](docs/screenshots/mdm-steward-queue.png)
+
+Low-confidence matches wait here as person-gated decisions: **confirm**
+merges the staged record into the golden, **reject** keeps it a record of
+its own, and **unsure** records the verdict and leaves the candidate open
+for a senior steward.
+
+![The golden record surface after the import and the steward's confirm:
+the imported people are goldens of their own, and the confirmed match
+folded into its survivor.](docs/screenshots/mdm-golden-lineage.png)
+
+Merge lineage is data (`merged`/`master_id` plus the `SourceIdentity`
+XREF), so "where did this golden come from" is one query — and every
+review-banded match runs the host's `mdm.steward_review` BPMN process,
+where enrichment steps and extra decisions route in.
+
 ## Status
 
 `0.1.x` — the MDM-0..6 build ([ADR 0050](https://github.com/lukegalea/ash_enterprise)
