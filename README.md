@@ -83,6 +83,8 @@ matches run the enterprise host's `mdm.steward_review` BPMN process
 import's land/stage/match stages are host code today. These are the
 host's screens — the package ships the engine, not the UI.
 
+<!-- moduledoc -->
+
 ## Status
 
 `0.1.x` — the MDM-0..6 build ([ADR 0050](https://github.com/lukegalea/ash_enterprise)
