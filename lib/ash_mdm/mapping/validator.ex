@@ -32,8 +32,11 @@ defmodule AshMdm.Mapping.Validator do
        the source it was proposed from.
     5. **Cast compatibility** — on `:ingress`, a `cast` op must name the
        target attribute's own type. **Ambiguous date order** — a
-       `parse_date` without `order: "mdy" | "dmy"` over observed values
-       shaped like `01/02/2024` is refused.
+       `parse_date` whose `order` is not `"mdy"` or `"dmy"` is refused when
+       its path's observed values include a `D/M/YYYY`-style value (1-2
+       digit day and month, `/` or `.` separators, 4-digit year, e.g.
+       `1/2/2024` or `01.02.2024`); with no observed values for the path
+       the check does not apply.
     6. **Egress read-only refusal** — a rule marked `read_only` is refused
        when the mapping's direction is `:egress` input (write-back shape).
 
