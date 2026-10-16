@@ -88,4 +88,10 @@ defmodule AshMdm.Fixtures.MatchCandidate do
     data_layer: AshPostgres.DataLayer
 
   use AshMdm.Resources, {:match_candidate, []}
+
+  # The :match_candidate macro emits no postgres block; the host supplies it.
+  postgres do
+    table "mdm_match_candidates"
+    repo(AshMdm.Test.Repo)
+  end
 end
