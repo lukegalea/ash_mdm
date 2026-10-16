@@ -15,17 +15,28 @@ defmodule AshMdm.Mapping.Validator do
   Checks:
 
     1. **Unknown operator** — an op outside `AshMdm.Mapping.Evaluator.ops/0`.
+       **Unknown target** — a `target_resource` outside
+       `config :ash_mdm, :allowed_targets` (fails closed: no allowlist means
+       every target is unknown).
     2. **Total accounting** — every public attribute of the target resource
        is mapped, constant, or explicitly `unmapped` **with a `because`**.
-       An unexplained unmapped attribute is a validation error.
+       An unexplained unmapped attribute is a validation error. On
+       `:egress` the mapping reads backwards: rules account golden
+       attributes by `path`, and each `target` must be a field declared in
+       `observed_schema`.
     3. **Decode totality + injectivity** — the value table covers every
        observed value of its path (`observed_schema`), and no two keys decode
        to the same target value; a counterexample is reported either way.
     4. **Required paths** — a rule marked `required` must have its path
        present in `observed_schema`, or the mapping cannot be trusted against
        the source it was proposed from.
-    5. **Cast compatibility** — a `cast` op must name the target attribute's
-       own type.
+    5. **Cast compatibility** — on `:ingress`, a `cast` op must name the
+       target attribute's own type. **Ambiguous date order** — a
+       `parse_date` whose `order` is not `"mdy"` or `"dmy"` is refused when
+       its path's observed values include a `D/M/YYYY`-style value (1-2
+       digit day and month, `/` or `.` separators, 4-digit year, e.g.
+       `1/2/2024` or `01.02.2024`); with no observed values for the path
+       the check does not apply.
     6. **Egress read-only refusal** — a rule marked `read_only` is refused
        when the mapping's direction is `:egress` input (write-back shape).
 
