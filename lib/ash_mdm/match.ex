@@ -27,8 +27,11 @@ defmodule AshMdm.Match do
   `AshMdm.Standardize`.
 
   Missing values on either side contribute 0 and the rule's entry gains
-  `"missing" => true`, so a calibration can tell "no data" from "disagreed".
-  Absence is never evidence of a match.
+  `"missing" => true`, so a calibration can tell "no data" from "disagreed". An
+  `exact` rule over several fields disagrees if any field both sides state
+  differs, even if another is missing.
+  Absence is never evidence of a match, and a blank or whitespace-only value,
+  including one a standardizer has emptied, is absence.
   """
   @spec score([map()], map(), map()) :: {Decimal.t(), map()}
   def score(rules, staged_map, golden_map) when is_list(rules) do
@@ -62,10 +65,12 @@ defmodule AshMdm.Match do
   defp contribution(%{"kind" => "exact", "fields" => fields} = rule, staged, golden) do
     values = Enum.map(fields, &{normalized(staged[&1], rule), normalized(golden[&1], rule)})
 
+    # A field both sides state and disagree on settles it, whatever else is
+    # blank: "missing" is for a pair the rule could not judge.
     cond do
+      Enum.any?(values, fn {s, g} -> present?(s) and present?(g) and s != g end) -> Decimal.new(0)
       Enum.any?(values, fn {s, g} -> is_nil(s) or is_nil(g) end) -> :missing
-      Enum.all?(values, fn {s, g} -> s == g end) -> Decimal.new(1)
-      true -> Decimal.new(0)
+      true -> Decimal.new(1)
     end
   end
 
@@ -95,7 +100,13 @@ defmodule AshMdm.Match do
     |> String.trim()
     |> String.downcase()
     |> AshMdm.Standardize.run(rule["standardize"] || [])
+    |> blank_to_nil()
   end
+
+  defp present?(value), do: not is_nil(value)
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(value), do: if(String.trim(value) == "", do: nil, else: value)
 
   defp similarity(s, g, "jaro"), do: s |> String.jaro_distance(g) |> Decimal.from_float()
 

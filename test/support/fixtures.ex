@@ -14,8 +14,10 @@ defmodule AshMdm.Fixtures do
     resource AshMdm.Fixtures.Mapping
     resource AshMdm.Fixtures.Person
     resource AshMdm.Fixtures.MatchRuleSet
+    resource AshMdm.Fixtures.TenantMatchRuleSet
     resource AshMdm.Fixtures.MatchCandidate
     resource AshMdm.Fixtures.AttributeAssertion
+    resource AshMdm.Fixtures.SensitiveAttributeAssertion
     resource AshMdm.Fixtures.CompletenessProfile
     resource AshMdm.Fixtures.AttributeGap
     resource AshMdm.Fixtures.Resolver
@@ -86,6 +88,27 @@ defmodule AshMdm.Fixtures.AttributeAssertion do
       {:attribute_assertion, repo: AshMdm.Test.Repo, table: "mdm_attribute_assertions"}
 end
 
+defmodule AshMdm.Fixtures.DigestSecret do
+  @moduledoc "The key a sensitive fixture's content digest is keyed by."
+
+  def fetch, do: "fixture-digest-secret"
+end
+
+defmodule AshMdm.Fixtures.SensitiveAttributeAssertion do
+  @moduledoc "The attribute assertion macro with `sensitive_value?: true`."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources,
+      {:attribute_assertion,
+       repo: AshMdm.Test.Repo,
+       table: "mdm_sensitive_attribute_assertions",
+       sensitive_value?: true,
+       digest_secret: {AshMdm.Fixtures.DigestSecret, :fetch, []}}
+end
+
 defmodule AshMdm.Fixtures.CompletenessProfile do
   @moduledoc "The macro-generated CompletenessProfile on the suite's own base."
 
@@ -115,6 +138,31 @@ defmodule AshMdm.Fixtures.MatchRuleSet do
     data_layer: AshPostgres.DataLayer
 
   use AshMdm.Resources, {:match_rule_set, repo: AshMdm.Test.Repo, table: "mdm_match_rule_sets"}
+end
+
+defmodule AshMdm.Fixtures.TenantMatchRuleSet do
+  @moduledoc "The macro-generated MatchRuleSet on a global-tenancy base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources,
+      {:match_rule_set,
+       repo: AshMdm.Test.Repo, table: "mdm_tenant_match_rule_sets", tenant?: true}
+
+  multitenancy do
+    strategy :attribute
+    attribute :organization_id
+    global? true
+  end
+
+  attributes do
+    attribute :organization_id, :uuid do
+      allow_nil? false
+      public? true
+    end
+  end
 end
 
 defmodule AshMdm.Fixtures.MatchCandidate do

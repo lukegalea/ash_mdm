@@ -270,6 +270,330 @@ defmodule AshMdm.AssertionsTest do
     end
   end
 
+  describe "a person's statement comes first" do
+    test "a steward's new value beats an older import under non_null" do
+      assertions = [
+        assertion("a", "name", "Imported"),
+        assertion("b", "name", "Stewarded", %{
+          origin_kind: :human,
+          source: "steward",
+          observed_at: @late
+        })
+      ]
+
+      assert %{merged: %{"name" => "Stewarded"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "among people, the oldest order still holds" do
+      assertions = [
+        assertion("b", "name", "Later", %{origin_kind: :human, source: "p2", observed_at: @late}),
+        assertion("a", "name", "First", %{origin_kind: :human, source: "p1"})
+      ]
+
+      assert %{merged: %{"name" => "First"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "depth stays primary: a survivor's import beats an absorbed golden's person" do
+      assertions = [
+        assertion("a", "name", "Absorbed Person", %{golden_id: @absorbed, origin_kind: :human}),
+        assertion("b", "name", "Survivor Import", %{observed_at: @late})
+      ]
+
+      depths = Assertions.chain_depths(@golden, [{@absorbed, @golden}])
+
+      assert %{merged: %{"name" => "Survivor Import"}} =
+               Assertions.fold(%{}, assertions, depths: depths)
+    end
+
+    test "steward_override through the fold names the human statement" do
+      policy = %{"default" => "steward_override"}
+
+      assertions = [
+        assertion("a", "name", "Imported"),
+        assertion("b", "name", "Stewarded", %{
+          origin_kind: :human,
+          source: "steward",
+          observed_at: @late
+        })
+      ]
+
+      assert %{
+               merged: %{"name" => "Stewarded"},
+               provenance: %{"name" => provenance}
+             } = Assertions.fold(policy, assertions)
+
+      assert provenance == %{
+               "assertion_id" => "b",
+               "origin" => "human",
+               "source" => "steward",
+               "strategy" => "steward_override"
+             }
+    end
+  end
+
+  describe "a same-observed_at correction" do
+    @first_write ~U[2026-02-01 00:00:00.000000Z]
+    @second_write ~U[2026-02-02 00:00:00.000000Z]
+
+    test "the row written later wins, whatever its id says" do
+      assertions = [
+        assertion("zzz", "name", "Original", %{inserted_at: @first_write}),
+        assertion("aaa", "name", "Corrected", %{inserted_at: @second_write})
+      ]
+
+      assert %{merged: %{"name" => "Corrected"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "with no inserted_at, id still orders it" do
+      assertions = [
+        assertion("a", "name", "Lower id"),
+        assertion("b", "name", "Higher id")
+      ]
+
+      assert %{merged: %{"name" => "Higher id"}} = Assertions.fold(%{}, assertions)
+    end
+  end
+
+  describe "most_complete across a correction" do
+    @mid ~U[2026-03-01 00:00:00.000000Z]
+
+    defp most_complete_statements do
+      x = %{source: "x", observed_at: @mid, origin_ref: %{"landing" => "x1"}}
+      correction = %{source: "x", observed_at: @late, origin_ref: %{"landing" => "x2"}}
+      y = %{source: "y", origin_ref: %{"landing" => "y1"}}
+
+      [
+        assertion("y1", "name", "Y", y),
+        assertion("y2", "email", "y@x.io", y),
+        assertion("x1", "name", "X", x),
+        assertion("x2", "email", "x@x.io", x),
+        assertion("x3", "phone", "typo", x),
+        assertion("x4", "phone", "555", correction)
+      ]
+    end
+
+    test "correcting one field does not flip the most complete speaker" do
+      assert %{merged: %{"name" => "X", "phone" => "555"}} =
+               Assertions.fold(%{"default" => "most_complete"}, most_complete_statements())
+    end
+
+    test "most_recent still sees each record's own observed_at" do
+      x_name = assertion("x1", "name", "X", %{source: "x"})
+      x_phone = assertion("x2", "phone", "555", %{source: "x", observed_at: @late})
+      y_name = assertion("y1", "name", "Y", %{source: "y", observed_at: @mid})
+
+      assert %{merged: %{"name" => "Y"}} =
+               Assertions.fold(%{"default" => "most_recent"}, [x_name, x_phone, y_name])
+    end
+  end
+
+  describe "retractions" do
+    defp retraction(id, retracts, overrides) do
+      assertion(
+        id,
+        "name",
+        nil,
+        Map.merge(%{origin_kind: :retraction, retracts_id: retracts, value: nil}, overrides)
+      )
+    end
+
+    @t1 ~U[2026-02-01 00:00:00.000000Z]
+    @t2 ~U[2026-02-02 00:00:00.000000Z]
+    @t3 ~U[2026-02-03 00:00:00.000000Z]
+
+    test "a retraction waiting on a person does not take effect" do
+      assertions = [assertion("a", "name", "Acme"), retraction("r", "a", %{band: :review})]
+      assert %{merged: %{"name" => "Acme"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "a refused retraction does not take effect" do
+      assertions = [assertion("a", "name", "Acme"), retraction("r", "a", %{band: :omit})]
+      assert %{merged: %{"name" => "Acme"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "an admitted retraction takes effect" do
+      assertions = [assertion("a", "name", "Acme"), retraction("r", "a", %{band: :admit})]
+      assert Assertions.fold(%{}, assertions) == %{merged: %{}, provenance: %{}}
+    end
+
+    test "retracting a retraction restores its target" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        retraction("r1", "a", %{observed_at: @t1}),
+        retraction("r2", "r1", %{observed_at: @t2})
+      ]
+
+      assert %{merged: %{"name" => "Acme"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "retracting that withdraws the target again" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        retraction("r1", "a", %{observed_at: @t1}),
+        retraction("r2", "r1", %{observed_at: @t2}),
+        retraction("r3", "r2", %{observed_at: @t3})
+      ]
+
+      assert Assertions.fold(%{}, assertions) == %{merged: %{}, provenance: %{}}
+    end
+
+    test "a retraction of a retraction waiting on a person changes nothing" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        retraction("r1", "a", %{observed_at: @t1}),
+        retraction("r2", "r1", %{observed_at: @t2, band: :review})
+      ]
+
+      assert Assertions.fold(%{}, assertions) == %{merged: %{}, provenance: %{}}
+    end
+
+    test "a chain folds the same in any input order" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        retraction("r1", "a", %{observed_at: @t1}),
+        retraction("r2", "r1", %{observed_at: @t2}),
+        retraction("r3", "r2", %{observed_at: @t3})
+      ]
+
+      for shuffled <- [Enum.reverse(assertions), Enum.shuffle(assertions)] do
+        assert Assertions.fold(%{}, shuffled) == Assertions.fold(%{}, assertions)
+      end
+    end
+
+    test "two retractions naming each other: the newest stands, whatever the input order" do
+      a = assertion("a", "name", "Acme")
+      first = retraction("r1", "r2", %{observed_at: @t1})
+      second = retraction("r2", "r1", %{observed_at: @t2})
+
+      for assertions <- [[a, first, second], [second, first, a]] do
+        assert %{merged: %{"name" => "Acme"}} = Assertions.fold(%{}, assertions)
+      end
+
+      target_of_newest = retraction("r2", "a", %{observed_at: @t2})
+      older = retraction("r1", "r2", %{observed_at: @t1})
+
+      assert Assertions.fold(%{}, [a, older, target_of_newest]) ==
+               %{merged: %{}, provenance: %{}}
+    end
+  end
+
+  describe "pending/1" do
+    defp review(id, value, overrides \\ %{}) do
+      assertion(id, "tax_id", value, Map.merge(%{band: :review}, overrides))
+    end
+
+    defp pending_ids(assertions),
+      do: assertions |> Assertions.pending() |> Enum.map(& &1.id) |> Enum.sort()
+
+    test "a statement superseded by the same source's newer one is not pending" do
+      assert pending_ids([review("a", "1"), review("b", "2", %{observed_at: @late})]) == ["b"]
+    end
+
+    test "a newer admitted statement from the same source ends the wait" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("b", "tax_id", "2", %{observed_at: @late})
+             ]) == []
+    end
+
+    test "another source does not supersede it" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("b", "tax_id", "2", %{source: "erp", observed_at: @late})
+             ]) == ["a"]
+    end
+
+    test "another origin kind does not supersede it" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("b", "tax_id", "2", %{origin_kind: :enrichment, observed_at: @late})
+             ]) == ["a"]
+    end
+
+    test "another attribute or golden does not supersede it" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("b", "email", "2", %{observed_at: @late}),
+               assertion("c", "tax_id", "3", %{golden_id: @absorbed, observed_at: @late})
+             ]) == ["a"]
+    end
+
+    test "a newer omitted statement does not supersede it" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("b", "tax_id", "2", %{band: :omit, observed_at: @late})
+             ]) == ["a"]
+    end
+
+    test "a newer statement that was retracted does not supersede it" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("b", "tax_id", "2", %{observed_at: @late}),
+               assertion("r", "tax_id", nil, %{
+                 origin_kind: :retraction,
+                 retracts_id: "b",
+                 value: nil
+               })
+             ]) == ["a"]
+    end
+
+    test "a blank statement is never pending: it could not stand if admitted" do
+      assert pending_ids([review("a", "   ")]) == []
+    end
+
+    test "a retraction waiting on a person is not pending once its target is gone" do
+      assert pending_ids([
+               assertion("target", "name", "Acme"),
+               retraction("settled", "target", %{observed_at: @late}),
+               retraction("waiting", "target", %{observed_at: @late, band: :review})
+             ]) == []
+    end
+
+    test "a retraction waiting on a person leaves its target pending" do
+      assert pending_ids([
+               review("a", "1"),
+               assertion("r", "tax_id", nil, %{
+                 origin_kind: :retraction,
+                 retracts_id: "a",
+                 band: :review,
+                 value: nil
+               })
+             ]) == ["a", "r"]
+    end
+  end
+
+  describe "standing/3" do
+    test "supporting holds every competing statement with the standing value, newest first" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        assertion("b", "name", "Acme", %{source: "erp", observed_at: @late}),
+        assertion("c", "name", "Other", %{source: "ops", observed_at: @late})
+      ]
+
+      assert %{supporting: %{"name" => [%{id: "b"}, %{id: "a"}]}} =
+               Assertions.standing(%{}, assertions)
+    end
+
+    test "a statement that does not compete does not support" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        assertion("b", "name", "Acme", %{source: "erp", band: :review, observed_at: @late})
+      ]
+
+      assert %{supporting: %{"name" => [%{id: "a"}]}} = Assertions.standing(%{}, assertions)
+    end
+
+    test "fold/3 still has only its two keys" do
+      assert Assertions.fold(%{}, [assertion("a", "name", "Acme")]) |> Map.keys() |> Enum.sort() ==
+               [:merged, :provenance]
+    end
+
+    test "nothing standing supports nothing" do
+      assert %{supporting: supporting} = Assertions.standing(%{}, [])
+      assert supporting == %{}
+    end
+  end
+
   describe "chain_depths/2" do
     test "the root alone is depth 0" do
       assert Assertions.chain_depths("a", []) == %{"a" => 0}

@@ -111,6 +111,91 @@ defmodule AshMdm.TuningTest do
     assert report_for(Tuning.propose([@email], labelled), "email").status == :proposed
   end
 
+  describe "a rule set partly tuned" do
+    @kept %{"name" => "kept", "kind" => "exact", "fields" => ["x"], "weight" => 2.0}
+
+    test "the tuned rules keep the combined share they had" do
+      labelled = balanced("email", 18, 2) ++ balanced("name", 16, 4)
+      result = Tuning.propose([@email, @name, @kept], labelled)
+
+      assert weight_of(result, "kept") == 2.0
+      assert_in_delta weight_of(result, "email") + weight_of(result, "name"), 2.0, 0.001
+      assert report_for(result, "email").status == :proposed
+      assert report_for(result, "kept").status == :insufficient_labels
+    end
+
+    test "the proportion between tuned rules survives" do
+      labelled = balanced("email", 18, 2) ++ balanced("name", 16, 4)
+      alone = Tuning.propose([@email, @name], labelled)
+      partial = Tuning.propose([@email, @name, @kept], labelled)
+
+      assert_in_delta weight_of(partial, "email") / weight_of(partial, "name"),
+                      weight_of(alone, "email") / weight_of(alone, "name"),
+                      0.01
+    end
+
+    test "a prior with no weight counts as 1.0" do
+      labelled = balanced("email", 18, 2)
+      rule = Map.delete(@email, "weight")
+      result = Tuning.propose([rule, @kept], labelled)
+
+      assert_in_delta weight_of(result, "email"), 1.0, 0.001
+    end
+
+    test "a floored rule keeps the floor, however large its prior" do
+      worthless = %{"name" => "worthless", "kind" => "exact", "fields" => ["a"], "weight" => 5.0}
+      result = Tuning.propose([worthless, @kept], balanced("worthless", 10, 10))
+
+      assert weight_of(result, "worthless") == 0.01
+      assert report_for(result, "worthless").status == :floored
+      assert report_for(result, "worthless").rescaled == false
+    end
+
+    test "a floored rule's share goes to the rules that earned one" do
+      worthless = %{"name" => "worthless", "kind" => "exact", "fields" => ["a"], "weight" => 5.0}
+      labelled = balanced("worthless", 10, 10) ++ balanced("email", 18, 2)
+      result = Tuning.propose([worthless, @email, @kept], labelled)
+
+      assert weight_of(result, "worthless") == 0.01
+      assert_in_delta weight_of(result, "email"), 6.0, 0.001
+    end
+
+    test "the floor applies after the rescale" do
+      strong = %{"name" => "strong", "kind" => "exact", "fields" => ["a"], "weight" => 0.5}
+      weak = %{"name" => "weak", "kind" => "exact", "fields" => ["b"], "weight" => 0.5}
+      labelled = balanced("strong", 20, 0) ++ balanced("weak", 5, 15)
+
+      result = Tuning.propose([strong, weak, @kept], labelled)
+
+      assert weight_of(result, "weak") == 0.01
+      assert report_for(result, "weak").status == :floored
+    end
+
+    test "a report entry says it was rescaled, and by how much" do
+      labelled = balanced("email", 18, 2)
+      result = Tuning.propose([@email, @kept], labelled)
+      entry = report_for(result, "email")
+
+      assert entry.rescaled == true
+      assert_in_delta entry.scale, 1.0 / Float.round(:math.log2(18.5 / 2.5), 4), 0.0001
+      assert report_for(result, "kept").rescaled == false
+      assert report_for(result, "kept").scale == nil
+    end
+
+    test "with every rule tuned nothing is rescaled" do
+      labelled = balanced("email", 18, 2) ++ balanced("name", 16, 4)
+      result = Tuning.propose([@email, @name], labelled)
+
+      assert weight_of(result, "email") == Float.round(:math.log2(18.5 / 2.5), 4)
+      assert report_for(result, "email").rescaled == false
+      assert report_for(result, "email").scale == nil
+    end
+
+    test "with no rule tuned nothing changes" do
+      assert Tuning.propose([@email, @kept], []).rules == [@email, @kept]
+    end
+  end
+
   test "a rule with no weight of its own stays without one when unlabelled" do
     rule = Map.delete(@email, "weight")
     assert %{rules: [^rule]} = Tuning.propose([rule], [])

@@ -141,6 +141,127 @@ defmodule AshMdm.CompletenessTest do
     refute inspect(assessment) =~ "Secret"
   end
 
+  describe "a requirement is judged against every statement holding the standing value" do
+    defp accepting(attribute, origins, extra \\ %{}) do
+      need(attribute, Map.merge(%{"accepted_origins" => origins}, extra))
+    end
+
+    test "an import later confirmed by an accepted origin closes the gap" do
+      assertions = [
+        statement("name", "Acme", %{id: "import", observed_at: @old}),
+        statement("name", "Acme", %{id: "evidence", origin_kind: :evidence, source: "doc"})
+      ]
+
+      assert [
+               %{
+                 kind: :satisfied,
+                 assertion_id: "evidence",
+                 standing_origin: "evidence",
+                 observed_at: @recent
+               }
+             ] = Completeness.assess([accepting("name", ["evidence"])], assertions, now: @now)
+    end
+
+    test "fresher evidence of the same value closes a staleness gap" do
+      assertions = [
+        statement("name", "Acme", %{id: "old", observed_at: @old}),
+        statement("name", "Acme", %{id: "fresh", source: "erp", observed_at: @recent})
+      ]
+
+      assert [%{kind: :satisfied, assertion_id: "fresh", observed_at: @recent}] =
+               Completeness.assess([need("name", %{"max_age_days" => 30})], assertions, now: @now)
+    end
+
+    test "a different value from an accepted origin does not" do
+      assertions = [
+        statement("name", "Acme", %{id: "import", observed_at: @old}),
+        statement("name", "Other", %{id: "evidence", origin_kind: :evidence, source: "doc"})
+      ]
+
+      assert [
+               %{
+                 kind: :origin_not_accepted,
+                 assertion_id: "import",
+                 standing_origin: "import"
+               }
+             ] = Completeness.assess([accepting("name", ["evidence"])], assertions, now: @now)
+    end
+
+    test "a confirmation that doesn't compete doesn't close it" do
+      assertions = [
+        statement("name", "Acme", %{id: "import"}),
+        statement("name", "Acme", %{
+          id: "evidence",
+          origin_kind: :evidence,
+          source: "doc",
+          band: :review
+        })
+      ]
+
+      assert kind(accepting("name", ["evidence"]), assertions) == :origin_not_accepted
+    end
+
+    test "stale beats expired, and expired beats an origin not accepted" do
+      stale = statement("name", "Acme", %{id: "stale", observed_at: @old, origin_kind: :human})
+
+      expired =
+        statement("name", "Acme", %{
+          id: "expired",
+          source: "erp",
+          origin_kind: :evidence,
+          valid_until: @recent
+        })
+
+      refused = statement("name", "Acme", %{id: "refused", source: "ops"})
+      requirement = accepting("name", ["human", "evidence"], %{"max_age_days" => 30})
+
+      assert [%{kind: :stale, assertion_id: "stale"}] =
+               Completeness.assess([requirement], [expired, stale, refused], now: @now)
+
+      assert [%{kind: :expired, assertion_id: "expired"}] =
+               Completeness.assess([requirement], [expired, refused], now: @now)
+    end
+
+    test "equal outcomes go to the statement that holds longest, not the newest" do
+      expiring = @now |> DateTime.add(1, :day)
+
+      assertions = [
+        statement("name", "Acme", %{id: "lasting", source: "erp", observed_at: @old}),
+        statement("name", "Acme", %{id: "soon", observed_at: @recent, valid_until: expiring})
+      ]
+
+      assert [%{kind: :satisfied, assertion_id: "lasting", valid_until: nil}] =
+               Completeness.assess([need("name")], assertions, now: @now)
+    end
+
+    test "a value going stale first loses to one that lasts" do
+      requirement = need("name", %{"max_age_days" => 30})
+      fresh_until_june = DateTime.add(@now, -29, :day)
+
+      assertions = [
+        statement("name", "Acme", %{id: "aging", source: "erp", observed_at: fresh_until_june}),
+        statement("name", "Acme", %{
+          id: "soon",
+          observed_at: @recent,
+          valid_until: DateTime.add(@now, 1, :hour)
+        })
+      ]
+
+      assert [%{assertion_id: "aging"}] =
+               Completeness.assess([requirement], assertions, now: @now)
+    end
+
+    test "equal outcomes go to the newest statement" do
+      assertions = [
+        statement("name", "Acme", %{id: "older", source: "erp", observed_at: @old}),
+        statement("name", "Acme", %{id: "newer", observed_at: @recent})
+      ]
+
+      assert [%{kind: :satisfied, assertion_id: "newer", observed_at: @recent}] =
+               Completeness.assess([need("name")], assertions, now: @now)
+    end
+  end
+
   test "gaps/3 leaves out what is satisfied" do
     requirements = [need("name"), need("email")]
 

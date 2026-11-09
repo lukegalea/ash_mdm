@@ -22,6 +22,25 @@ defmodule AshMdm.MatchTest do
     }
   ]
 
+  test "a composite rule that disagrees on one field is not missing for a blank in another" do
+    rule = %{"name" => "both", "kind" => "exact", "fields" => ["a", "b"], "weight" => 1.0}
+
+    {_score, %{"both" => part}} =
+      Match.score([rule], %{"a" => "x", "b" => " "}, %{"a" => "y", "b" => "z"})
+
+    assert Decimal.eq?(part["c"], 0)
+    refute Map.has_key?(part, "missing")
+  end
+
+  test "a composite rule that agrees where it can see is still missing" do
+    rule = %{"name" => "both", "kind" => "exact", "fields" => ["a", "b"], "weight" => 1.0}
+
+    {_score, %{"both" => part}} =
+      Match.score([rule], %{"a" => "x", "b" => " "}, %{"a" => "x", "b" => "z"})
+
+    assert part["missing"] == true
+  end
+
   test "identical pair scores 1.0" do
     staged = %{"email" => "a@x.io", "name" => "Ann"}
     golden = %{"email" => "a@x.io", "name" => "Ann"}

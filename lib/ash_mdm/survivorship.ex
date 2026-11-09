@@ -18,13 +18,14 @@ defmodule AshMdm.Survivorship do
 
   Strategies:
 
-    * `most_recent`  — the record whose `observed_at` is latest
+    * `most_recent`  — the record whose `observed_at` is latest, to the microsecond
     * `source_rank`  — earliest source in the policy's `source_rank` list.
       Every record's `source` must be a real source name: one the list does
       not name ranks last, so placeholders tie and the first record wins
     * `origin_rank`  — earliest origin kind in the policy's `origin_rank`
       list, for records that carry `origin` (see `AshMdm.Assertions`)
-    * `most_complete` — the record with the fewest nil attributes
+    * `most_complete` — the record with the fewest nil attributes, or the
+      highest `completeness` when a record carries one (see `AshMdm.Assertions`)
     * `non_null`     — first non-nil in record order (the default)
     * `steward_override` — the record the steward nominated; recorded as
       provenance, resolved by the caller passing that record first
@@ -120,7 +121,7 @@ defmodule AshMdm.Survivorship do
   defp rec_get(_records, rec, key), do: rec.attributes[key]
 
   defp observed_unix(rec, _records),
-    do: (rec.observed_at && DateTime.to_unix(rec.observed_at)) || 0
+    do: (rec.observed_at && DateTime.to_unix(rec.observed_at, :microsecond)) || 0
 
   defp rank_of(source, source_rank) do
     case Enum.find_index(source_rank, &(&1 == source)) do
@@ -128,6 +129,8 @@ defmodule AshMdm.Survivorship do
       idx -> idx
     end
   end
+
+  defp completeness(%{completeness: count}) when is_integer(count), do: count
 
   defp completeness(rec) do
     rec.attributes |> Map.values() |> Enum.count(&(not is_nil(&1)))

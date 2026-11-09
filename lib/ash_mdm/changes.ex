@@ -159,6 +159,10 @@ defmodule AshMdm.Changes.Activate do
 
   The status is checked again in the write itself, so a stale copy of a row
   that has moved on since it was read is refused and rolls back the retiring.
+
+  Options: `:identity`, the attributes naming what is one thing to activate,
+  and `:from`, the status activation moves away from (default `:validated`;
+  a match rule set has no validate step, so it activates from `:draft`).
   """
 
   use Ash.Resource.Change
@@ -170,12 +174,13 @@ defmodule AshMdm.Changes.Activate do
   @impl true
   def change(changeset, opts, _context) do
     identity = opts[:identity] || @mapping_identity
+    from = opts[:from] || :validated
 
     changeset
     # Retire predecessors BEFORE this row becomes active, otherwise the
     # one-active partial unique index sees two active rows for the tuple.
     |> Ash.Changeset.before_action(&retire_predecessors(&1, identity))
-    |> Ash.Changeset.filter(Ash.Expr.expr(status == :validated))
+    |> Ash.Changeset.filter(Ash.Expr.expr(status == ^from))
     |> Ash.Changeset.force_change_attribute(:status, :active)
   end
 
@@ -203,40 +208,14 @@ defmodule AshMdm.Changes.Activate do
   end
 end
 
-defmodule AshMdm.Changes.ActivateRuleSet do
-  @moduledoc """
-  draft -> active for a MatchRuleSet, retiring the previously active set
-  for the same golden resource (same supersede semantics as Mapping).
-  """
-
-  use Ash.Resource.Change
-  require Ash.Query
-
-  @impl true
-  def change(changeset, _opts, _context) do
-    Ash.Changeset.before_action(changeset, fn changeset ->
-      resource = Ash.Changeset.get_attribute(changeset, :golden_resource)
-
-      changeset.resource
-      |> Ash.Query.filter(
-        golden_resource == ^resource and status == :active and id != ^changeset.data.id
-      )
-      |> Ash.read!(tenant: changeset.tenant, authorize?: false)
-      |> Enum.each(fn predecessor ->
-        predecessor
-        |> Ash.Changeset.for_update(:retire, %{})
-        |> Ash.update!(authorize?: false)
-      end)
-
-      Ash.Changeset.force_change_attribute(changeset, :status, :active)
-    end)
-  end
-end
-
 defmodule AshMdm.Changes.SealAssertion do
   @moduledoc """
   Wraps an assertion's value for storage and stamps the digest of its
   content, so writing the same statement twice (a retried job) is one row.
+
+  With `digest_secret: {module, function, args}` the digest is an HMAC-SHA256
+  under that secret instead, because an unsalted hash of a low-entropy value
+  such as a government identifier can be brute-forced.
   """
 
   use Ash.Resource.Change
@@ -246,7 +225,7 @@ defmodule AshMdm.Changes.SealAssertion do
   @impl true
   def change(%{valid?: false} = changeset, _opts, _context), do: changeset
 
-  def change(changeset, _opts, _context) do
+  def change(changeset, opts, _context) do
     value =
       case Ash.Changeset.get_argument(changeset, :value) do
         nil -> nil
@@ -260,10 +239,23 @@ defmodule AshMdm.Changes.SealAssertion do
 
     changeset
     |> Ash.Changeset.force_change_attribute(:value, value)
-    |> Ash.Changeset.force_change_attribute(
-      :content_digest,
-      AshMdm.Mapping.ContentHash.hash!(content)
-    )
+    |> Ash.Changeset.force_change_attribute(:content_digest, digest(content, opts))
+  end
+
+  defp digest(content, opts) do
+    case opts[:digest_secret] do
+      nil -> AshMdm.Mapping.ContentHash.hash!(content)
+      {module, function, args} -> keyed(content, apply(module, function, args))
+    end
+  end
+
+  defp keyed(content, secret) when is_binary(secret) and byte_size(secret) > 0 do
+    AshMdm.Mapping.ContentHash.hmac!(content, secret)
+  end
+
+  # Never inspect the returned value here: it is, or should be, a secret.
+  defp keyed(_content, _secret) do
+    raise ArgumentError, "digest_secret must return a non-empty binary"
   end
 end
 

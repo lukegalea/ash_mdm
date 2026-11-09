@@ -49,6 +49,21 @@ defmodule AshMdm.SurvivorshipTest do
     assert provenance["name"]["strategy"] == "most_recent"
   end
 
+  test "most_recent compares microseconds, not whole seconds" do
+    earlier = rec("a", ~U[2026-01-01 00:00:00.100000Z], %{"name" => "Earlier"})
+    later = rec("b", ~U[2026-01-01 00:00:00.200000Z], %{"name" => "Later"})
+
+    assert %{merged: %{"name" => "Later"}} = Survivorship.resolve(@policy, [earlier, later])
+  end
+
+  test "most_complete prefers a record's own completeness when it carries one" do
+    policy = %{"default" => "most_complete"}
+    thin = Map.put(rec("a", @dt, %{"name" => "Thin"}), :completeness, 3)
+    wide = rec("b", @dt, %{"name" => "Wide", "email" => "w@x.io"})
+
+    assert %{merged: %{"name" => "Thin"}} = Survivorship.resolve(policy, [wide, thin])
+  end
+
   test "non_null default skips nils and merges attributes across records" do
     policy = %{"default" => "non_null"}
 

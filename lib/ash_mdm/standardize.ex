@@ -8,7 +8,9 @@ defmodule AshMdm.Standardize do
   lowercased, trimmed string and returns a string or nil, and they run in the
   order the rule lists them.
 
-    * `unaccent` removes combining marks, so `Société` compares as `Societe`.
+    * `unaccent` removes combining marks after a Latin base letter, so
+      `Société` compares as `Societe`. Marks on other scripts are kept, since
+      Devanagari, Thai and Japanese marks distinguish words.
     * `legal_suffix` removes trailing legal forms, so `Acme, Inc.` compares
       as `Acme`. Two different companies can share a stem, so a rule using
       this belongs in the review band rather than deciding a merge alone.
@@ -18,9 +20,13 @@ defmodule AshMdm.Standardize do
 
   A name that is nothing but a legal form keeps it, so `Limited` stays a name
   and doesn't become a blank that disagrees with every other record.
+
+  The Italian `S.p.A.` strips only with its dots: bare `spa` is an English word
+  in too many business names to be a legal form.
   """
 
   @standardizers ~w(unaccent legal_suffix lei)
+  @dotted_spa "s.p.a"
 
   # Longest first, so a phrase is removed before any word inside it.
   @suffixes [
@@ -32,6 +38,7 @@ defmodule AshMdm.Standardize do
     ~w(corporation),
     ~w(company),
     ~w(limited),
+    [@dotted_spa],
     ~w(gmbh),
     ~w(sarl),
     ~w(corp),
@@ -46,7 +53,6 @@ defmodule AshMdm.Standardize do
     ~w(pty),
     ~w(ulc),
     ~w(srl),
-    ~w(spa),
     ~w(ag),
     ~w(bv),
     ~w(co),
@@ -70,15 +76,18 @@ defmodule AshMdm.Standardize do
   end
 
   defp standardize("unaccent", value) do
-    value |> String.normalize(:nfd) |> String.replace(~r/\p{Mn}/u, "")
+    value
+    |> String.normalize(:nfd)
+    |> String.replace(~r/(\p{Latin})\p{Mn}+/u, "\\1")
+    |> String.normalize(:nfc)
   end
 
   defp standardize("legal_suffix", value) do
-    tokens = value |> String.split() |> Enum.map(&clean_token/1)
+    tokens = value |> String.split(~r/\s+/u, trim: true) |> Enum.map(&clean_token/1)
 
     case strip_suffixes(Enum.reverse(tokens)) do
       [] -> value
-      kept -> kept |> Enum.reverse() |> Enum.join(" ")
+      kept -> kept |> Enum.reverse() |> Enum.map_join(" ", &undotted/1)
     end
   end
 
@@ -89,8 +98,15 @@ defmodule AshMdm.Standardize do
 
   # `l.l.c.` and `inc,` are the same tokens as `llc` and `inc`.
   defp clean_token(token) do
-    token |> String.replace(".", "") |> String.trim_trailing(",")
+    if String.replace(token, ~r/[.,]+$/u, "") == @dotted_spa do
+      @dotted_spa
+    else
+      token |> String.replace(".", "") |> String.trim_trailing(",")
+    end
   end
+
+  defp undotted(@dotted_spa), do: "spa"
+  defp undotted(token), do: token
 
   defp strip_suffixes(["" | rest]), do: strip_suffixes(rest)
   defp strip_suffixes(["&" | rest]), do: strip_suffixes(rest)
