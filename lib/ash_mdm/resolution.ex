@@ -24,6 +24,21 @@ defmodule AshMdm.Resolution do
   round it is reached; the planner does not search for a globally cheapest
   plan.
 
+  Only gaps are planned. A requirement that is not itself a gap is never
+  chased, even when some resolver could produce it: the step comes back
+  `needs_input` naming it. A step may start from whatever is passed as held,
+  so leave out anything too old or too doubtful to build on.
+
+  ## Origins
+
+  A resolver that cannot close the gap is not a candidate, however cheap. When
+  a gap carries `accepted_origins`, a resolver qualifies only if the statement
+  that would end up standing has an accepted origin. That is the resolver's
+  own kind, except on a material gap, where it is always a person's: the gap
+  closes on the `human` statement admitting what the resolver produced, so a
+  material gap qualifies every resolver if `human` is accepted and none if it
+  is not. A gap repeated across purposes must satisfy each of them.
+
   ## Answers
 
   One map per distinct gap attribute, sorted by attribute, so the order of
@@ -36,9 +51,11 @@ defmodule AshMdm.Resolution do
       must admit what that resolver produces. The planner never decides that
       a person is unnecessary.
     * `%{status: :needs_input, resolver: name, missing: [attribute]}`: some
-      resolver produces the attribute but none is usable. `resolver` is the one
-      closest to usable, and `missing` is what it still requires.
-    * `%{status: :no_route, because: string}`: no resolver produces it.
+      resolver able to close the gap produces the attribute but none is usable.
+      `resolver` is the one closest to usable, and `missing` is what it still
+      requires.
+    * `%{status: :no_route, because: string}`: no resolver produces it, or
+      none that produces it can land an origin the gap accepts.
   """
 
   @kinds ~w(human inference judgment evidence enrichment)
@@ -58,7 +75,7 @@ defmodule AshMdm.Resolution do
     |> Enum.map(fn gap ->
       case Map.fetch(planned, gap.attribute) do
         {:ok, step} -> Map.put(step, :attribute, gap.attribute)
-        :error -> unplanned(gap.attribute, resolvers, available)
+        :error -> unplanned(gap, resolvers, available)
       end
     end)
   end
@@ -67,9 +84,24 @@ defmodule AshMdm.Resolution do
     gaps
     |> Enum.group_by(&to_string(&1.attribute))
     |> Enum.map(fn {attribute, group} ->
-      %{attribute: attribute, material: Enum.any?(group, &(Map.get(&1, :material) == true))}
+      %{
+        attribute: attribute,
+        material: Enum.any?(group, &(Map.get(&1, :material) == true)),
+        accepted: accepted(group)
+      }
     end)
     |> Enum.sort_by(& &1.attribute)
+  end
+
+  defp accepted(group) do
+    group
+    |> Enum.map(&Map.get(&1, :accepted_origins))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(fn origins -> MapSet.new(origins, &to_string/1) end)
+    |> case do
+      [] -> nil
+      [first | rest] -> Enum.reduce(rest, first, &MapSet.intersection/2)
+    end
   end
 
   defp rounds(gaps, resolvers, held, available, planned, round) do
@@ -77,7 +109,7 @@ defmodule AshMdm.Resolution do
 
     steps =
       for gap <- open,
-          resolver = Enum.find(resolvers, &usable?(&1, gap.attribute, available)),
+          resolver = Enum.find(resolvers, &usable?(&1, gap, available)),
           do: {gap, resolver}
 
     if steps == [] do
@@ -97,8 +129,14 @@ defmodule AshMdm.Resolution do
     end
   end
 
-  defp usable?(resolver, attribute, available),
-    do: produces?(resolver, attribute) and unmet(resolver, available) == []
+  defp usable?(resolver, gap, available),
+    do: closes?(resolver, gap) and unmet(resolver, available) == []
+
+  defp closes?(resolver, gap), do: produces?(resolver, gap.attribute) and accepts?(gap, resolver)
+
+  defp accepts?(%{accepted: nil}, _resolver), do: true
+  defp accepts?(%{material: true, accepted: accepted}, _resolver), do: "human" in accepted
+  defp accepts?(%{accepted: accepted}, resolver), do: to_string(resolver.kind) in accepted
 
   defp produces?(resolver, attribute), do: attribute in Enum.map(resolver.produces, &to_string/1)
 
@@ -122,18 +160,19 @@ defmodule AshMdm.Resolution do
     }
   end
 
-  defp unplanned(attribute, resolvers, available) do
-    case Enum.filter(resolvers, &produces?(&1, attribute)) do
-      [] ->
-        %{
-          attribute: attribute,
-          status: :no_route,
-          because: "no active resolver produces this attribute"
-        }
+  defp unplanned(%{attribute: attribute} = gap, resolvers, available) do
+    producers = Enum.filter(resolvers, &produces?(&1, attribute))
 
-      producers ->
+    case Enum.filter(producers, &closes?(&1, gap)) do
+      [] when producers == [] ->
+        no_route(attribute, "no active resolver produces this attribute")
+
+      [] ->
+        no_route(attribute, "no resolver producing this attribute can land an accepted origin")
+
+      closers ->
         {resolver, missing} =
-          producers
+          closers
           |> Enum.map(&{&1, &1 |> unmet(available) |> Enum.sort()})
           |> Enum.min_by(fn {resolver, missing} ->
             {length(missing), resolver.cost_rank, resolver.name}
@@ -142,4 +181,7 @@ defmodule AshMdm.Resolution do
         %{attribute: attribute, status: :needs_input, resolver: resolver.name, missing: missing}
     end
   end
+
+  defp no_route(attribute, because),
+    do: %{attribute: attribute, status: :no_route, because: because}
 end

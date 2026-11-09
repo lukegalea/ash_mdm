@@ -135,6 +135,72 @@ defmodule AshMdm.ResolverTest do
     end
   end
 
+  describe "tenancy" do
+    alias AshMdm.Fixtures.TenantResolver
+
+    defp tenant_draft!(tenant, overrides \\ %{}) do
+      TenantResolver
+      |> Ash.Changeset.for_create(:draft, input(overrides), tenant: tenant)
+      |> Ash.create!(authorize?: false)
+    end
+
+    defp tenant_run(resolver, action, tenant) do
+      resolver
+      |> Ash.Changeset.for_update(action, %{}, tenant: tenant)
+      |> Ash.update!(authorize?: false)
+    end
+
+    defp version_input(from),
+      do: %{
+        from_resolver_id: from,
+        kind: "inference",
+        produces: ["email"],
+        cost_rank: 2,
+        reference: %{"operation" => "infer"}
+      }
+
+    test "a new version is linked and supersedes inside its tenant" do
+      org = Ecto.UUID.generate()
+      first = org |> tenant_draft!() |> tenant_run(:validate, org) |> tenant_run(:activate, org)
+
+      second =
+        TenantResolver
+        |> Ash.Changeset.for_create(:create_version, version_input(first.id), tenant: org)
+        |> Ash.create!(authorize?: false)
+        |> tenant_run(:validate, org)
+        |> tenant_run(:activate, org)
+
+      assert second.version == 2
+      assert second.root_id == first.id
+      assert second.organization_id == org
+
+      assert %{status: :retired} =
+               Ash.get!(TenantResolver, first.id, tenant: org, authorize?: false)
+    end
+
+    test "another tenant's resolver cannot be the predecessor" do
+      theirs = Ecto.UUID.generate() |> tenant_draft!()
+      ours = Ecto.UUID.generate()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               TenantResolver
+               |> Ash.Changeset.for_create(:create_version, version_input(theirs.id),
+                 tenant: ours
+               )
+               |> Ash.create(authorize?: false)
+    end
+
+    test "activation leaves another tenant's active resolver alone" do
+      a = Ecto.UUID.generate()
+      b = Ecto.UUID.generate()
+      theirs = a |> tenant_draft!() |> tenant_run(:validate, a) |> tenant_run(:activate, a)
+      b |> tenant_draft!() |> tenant_run(:validate, b) |> tenant_run(:activate, b)
+
+      assert %{status: :active} =
+               Ash.get!(TenantResolver, theirs.id, tenant: a, authorize?: false)
+    end
+  end
+
   describe "activate" do
     test "needs a validated resolver" do
       assert_raise Ash.Error.Invalid, fn -> draft!() |> run(:activate) end
@@ -187,6 +253,56 @@ defmodule AshMdm.ResolverTest do
         })
 
       refute second.valid?
+    end
+
+    test "a new version of something that does not exist is refused, not a crash" do
+      changeset =
+        Resolver
+        |> Ash.Changeset.for_create(:create_version, %{
+          from_resolver_id: Ecto.UUID.generate(),
+          kind: "enrichment",
+          produces: ["email"],
+          cost_rank: 1,
+          reference: %{"a" => 1}
+        })
+
+      assert {:error, %Ash.Error.Invalid{}} = Ash.create(changeset, authorize?: false)
+    end
+
+    test "a stale copy of a since-retired version cannot bring it back" do
+      validated = draft!() |> run(:validate)
+      first = run(validated, :activate)
+
+      second =
+        Resolver
+        |> Ash.Changeset.for_create(:create_version, %{
+          from_resolver_id: first.id,
+          kind: "inference",
+          produces: ["email"],
+          cost_rank: 2,
+          reference: %{"operation" => "infer"}
+        })
+        |> Ash.create!(authorize?: false)
+        |> run(:validate)
+        |> run(:activate)
+
+      assert {:error, _} =
+               validated
+               |> Ash.Changeset.for_update(:activate, %{})
+               |> Ash.update(authorize?: false)
+
+      assert %{status: :active} = Ash.get!(Resolver, second.id, authorize?: false)
+      assert %{status: :retired} = Ash.get!(Resolver, first.id, authorize?: false)
+    end
+
+    test "a stale copy of a draft cannot pull an active resolver back" do
+      stale = draft!()
+      active = stale |> run(:validate) |> run(:activate)
+
+      assert {:error, _} =
+               stale |> Ash.Changeset.for_update(:validate, %{}) |> Ash.update(authorize?: false)
+
+      assert %{status: :active} = Ash.get!(Resolver, active.id, authorize?: false)
     end
 
     test "another name stays active alongside" do

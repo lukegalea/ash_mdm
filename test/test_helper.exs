@@ -13,6 +13,8 @@
   AshMdm.Fixtures.AttributeAssertion,
   AshMdm.Fixtures.CompletenessProfile,
   AshMdm.Fixtures.AttributeGap,
+  AshMdm.Fixtures.Resolver,
+  AshMdm.Fixtures.TenantResolver,
   AshMdm.Test.Repo
 ]
 |> Enum.each(&Code.ensure_loaded!/1)

@@ -74,7 +74,11 @@ natively; the package never assumes an actor model.
   `:planned`, `:needs_input` or `:no_route`. Greedy by `cost_rank` then name; a
   chain resolves in rounds, a requires cycle ends in `:needs_input`. A material
   gap planned to a non-human kind comes back `needs_person: true`: the planner
-  never decides a person is unnecessary. It runs nothing and stores nothing;
+  never decides a person is unnecessary. A gap's `accepted_origins` narrow the
+  candidates to resolvers that can land an accepted origin (on a material gap,
+  that origin is `human`); if none can, the answer is `:no_route`. Only gaps
+  are planned, so a requirement that is not a gap comes back `:needs_input`
+  even if a resolver could produce it. It runs nothing and stores nothing;
   executing a step and recording the attempt are host code.
 - `AshMdm.Tuning.propose/2` turns judged pairs into proposed rule weights.
   Write the result with the rule set's `:create_version` and have a person

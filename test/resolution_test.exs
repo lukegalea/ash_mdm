@@ -237,6 +237,127 @@ defmodule AshMdm.ResolutionTest do
     end
   end
 
+  describe "accepted origins" do
+    defp picky(attribute, accepted, material \\ false),
+      do: %{attribute: attribute, material: material, accepted_origins: accepted}
+
+    test "a cheaper resolver of an origin the purpose refuses is passed over" do
+      resolvers = [
+        resolver("scrape", "inference", ["tax_id"], cost: 1),
+        resolver("registry", "enrichment", ["tax_id"], cost: 9)
+      ]
+
+      assert [%{status: :planned, resolver: "registry", needs_person: false}] =
+               Resolution.plan([picky("tax_id", ["enrichment"])], resolvers, [])
+    end
+
+    test "when only refused origins produce it there is no route, and it says why" do
+      resolvers = [resolver("scrape", "inference", ["tax_id"])]
+
+      assert [%{status: :no_route, because: because}] =
+               Resolution.plan([picky("tax_id", ["human"])], resolvers, [])
+
+      assert because =~ "accept"
+    end
+
+    test "needs_input never names a resolver the purpose would refuse" do
+      resolvers = [
+        resolver("scrape", "inference", ["tax_id"], requires: ["a"]),
+        resolver("registry", "enrichment", ["tax_id"], requires: ["b", "c"])
+      ]
+
+      assert [%{status: :needs_input, resolver: "registry", missing: ["b", "c"]}] =
+               Resolution.plan([picky("tax_id", ["enrichment"])], resolvers, [])
+    end
+
+    test "a refused step feeds nothing, because it is never planned" do
+      resolvers = [
+        resolver("scrape", "inference", ["website"]),
+        resolver("read", "evidence", ["tax_id"], requires: ["website"])
+      ]
+
+      plan =
+        by_attribute(Resolution.plan([picky("website", ["human"]), gap("tax_id")], resolvers, []))
+
+      assert plan["website"].status == :no_route
+      assert %{status: :needs_input, missing: ["website"]} = plan["tax_id"]
+    end
+
+    test "a material gap closes on the person's statement, whatever produced the draft" do
+      resolvers = [resolver("lookup", "enrichment", ["tax_id"])]
+
+      assert [%{status: :planned, resolver: "lookup", needs_person: true}] =
+               Resolution.plan([picky("tax_id", ["human"], true)], resolvers, [])
+    end
+
+    test "a material gap that refuses people's statements cannot be closed" do
+      resolvers = [
+        resolver("lookup", "enrichment", ["tax_id"]),
+        resolver("ask", "human", ["tax_id"])
+      ]
+
+      assert [%{status: :no_route}] =
+               Resolution.plan([picky("tax_id", ["enrichment"], true)], resolvers, [])
+    end
+
+    test "a gap repeated across purposes must satisfy every one of them" do
+      resolvers = [
+        resolver("scrape", "inference", ["tax_id"], cost: 1),
+        resolver("registry", "enrichment", ["tax_id"], cost: 5),
+        resolver("ask", "human", ["tax_id"], cost: 9)
+      ]
+
+      gaps = [
+        picky("tax_id", ["inference", "enrichment"]),
+        picky("tax_id", ["enrichment", "human"])
+      ]
+
+      assert [%{resolver: "registry"}] = Resolution.plan(gaps, resolvers, [])
+      assert [%{resolver: "registry"}] = Resolution.plan(Enum.reverse(gaps), resolvers, [])
+    end
+
+    test "a gap with no opinion on origin does not narrow one that has" do
+      resolvers = [
+        resolver("scrape", "inference", ["tax_id"], cost: 1),
+        resolver("registry", "enrichment", ["tax_id"], cost: 5)
+      ]
+
+      assert [%{resolver: "registry"}] =
+               Resolution.plan([gap("tax_id"), picky("tax_id", ["enrichment"])], resolvers, [])
+    end
+
+    test "read from real completeness gaps" do
+      requirements = [
+        %{
+          "attribute" => "tax_id",
+          "need" => "required",
+          "because" => "r",
+          "accepted_origins" => ["enrichment"]
+        }
+      ]
+
+      assertion = %{
+        id: 1,
+        attribute: "tax_id",
+        value: AshMdm.Assertions.wrap_value("123"),
+        origin_kind: :inference,
+        source: "site",
+        band: :admit,
+        observed_at: ~U[2026-01-01 00:00:00Z]
+      }
+
+      resolvers = [
+        resolver("scrape", "inference", ["tax_id"], cost: 1),
+        resolver("registry", "enrichment", ["tax_id"], cost: 5)
+      ]
+
+      assert [%{kind: :origin_not_accepted} = found] =
+               AshMdm.Completeness.gaps(requirements, [assertion])
+
+      assert [%{resolver: "registry"}] = Resolution.plan([found], resolvers, [])
+    end
+  end
+
   describe "input order" do
     test "gaps, resolvers and held in any order give one answer" do
       gaps = [gap("a"), gap("b", true), gap("c"), gap("d"), gap("e")]
