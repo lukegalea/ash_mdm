@@ -73,8 +73,9 @@ defmodule AshMdm.Changes.LinkVersionChain do
   @moduledoc """
   Derives the version-chain linkage from the predecessor named by the
   argument in the `:argument` option (default `:from_mapping_id`):
-  `root_id`, `version + 1`, `supersedes_id`. The predecessor is untouched —
-  nothing is overwritten, ever.
+  `root_id`, `version + 1`, `supersedes_id`. The predecessor is read in the
+  changeset's tenant and is untouched — nothing is overwritten, ever. One that
+  cannot be found there is a refusal on that argument.
   """
 
   use Ash.Resource.Change
@@ -84,25 +85,35 @@ defmodule AshMdm.Changes.LinkVersionChain do
     argument = opts[:argument] || :from_mapping_id
 
     Ash.Changeset.before_action(changeset, fn changeset ->
-      {:ok, predecessor} =
-        Ash.get(changeset.resource, Ash.Changeset.get_argument(changeset, argument),
-          authorize?: false
-        )
+      id = Ash.Changeset.get_argument(changeset, argument)
 
-      opts[:inherit]
-      |> List.wrap()
-      |> Enum.reduce(changeset, fn attribute, changeset ->
-        Ash.Changeset.force_change_attribute(
-          changeset,
-          attribute,
-          Map.fetch!(predecessor, attribute)
-        )
-      end)
-      |> Ash.Changeset.force_change_attribute(:supersedes_id, predecessor.id)
-      |> Ash.Changeset.force_change_attribute(:root_id, predecessor.root_id || predecessor.id)
-      |> Ash.Changeset.force_change_attribute(:version, (predecessor.version || 1) + 1)
-      |> Ash.Changeset.force_change_attribute(:status, :draft)
+      case Ash.get(changeset.resource, id, tenant: changeset.tenant, authorize?: false) do
+        {:ok, predecessor} ->
+          link(changeset, predecessor, opts[:inherit])
+
+        {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} ->
+          Ash.Changeset.add_error(changeset, field: argument, message: "no such version")
+
+        {:error, error} ->
+          Ash.Changeset.add_error(changeset, error)
+      end
     end)
+  end
+
+  defp link(changeset, predecessor, inherit) do
+    inherit
+    |> List.wrap()
+    |> Enum.reduce(changeset, fn attribute, changeset ->
+      Ash.Changeset.force_change_attribute(
+        changeset,
+        attribute,
+        Map.fetch!(predecessor, attribute)
+      )
+    end)
+    |> Ash.Changeset.force_change_attribute(:supersedes_id, predecessor.id)
+    |> Ash.Changeset.force_change_attribute(:root_id, predecessor.root_id || predecessor.id)
+    |> Ash.Changeset.force_change_attribute(:version, (predecessor.version || 1) + 1)
+    |> Ash.Changeset.force_change_attribute(:status, :draft)
   end
 end
 
@@ -145,9 +156,14 @@ defmodule AshMdm.Changes.Activate do
   The one-active partial unique index is the database's backstop; this
   change is the designed path (retire predecessor, then activate). Scoped
   to `organization_id` when the host's base supplies it.
+
+  The status is checked again in the write itself, so a stale copy of a row
+  that has moved on since it was read is refused and rolls back the retiring.
   """
 
   use Ash.Resource.Change
+
+  require Ash.Expr
 
   @mapping_identity [:direction, :source, :stream, :target_resource]
 
@@ -159,6 +175,7 @@ defmodule AshMdm.Changes.Activate do
     # Retire predecessors BEFORE this row becomes active, otherwise the
     # one-active partial unique index sees two active rows for the tuple.
     |> Ash.Changeset.before_action(&retire_predecessors(&1, identity))
+    |> Ash.Changeset.filter(Ash.Expr.expr(status == :validated))
     |> Ash.Changeset.force_change_attribute(:status, :active)
   end
 
@@ -267,6 +284,40 @@ defmodule AshMdm.Changes.RunCompletenessValidation do
           golden_resource: Ash.Changeset.get_attribute(changeset, :golden_resource),
           requirements: Ash.Changeset.get_attribute(changeset, :requirements)
         })
+
+      status = if(findings.errors == [], do: :validated, else: :draft)
+
+      changeset
+      |> Ash.Changeset.force_change_attribute(:validation_findings, findings)
+      |> Ash.Changeset.force_change_attribute(:status, status)
+    end)
+  end
+end
+
+defmodule AshMdm.Changes.RunResolverValidation do
+  @moduledoc """
+  Runs `AshMdm.Resolution.Validator.findings/1`: draft -> validated only when
+  there are no errors, otherwise the resolver stays a draft with its findings.
+  The status is checked again in the write itself, so a stale copy of a draft
+  cannot pull a resolver that has since been activated back out of service.
+  """
+
+  use Ash.Resource.Change
+
+  require Ash.Expr
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    changeset
+    |> Ash.Changeset.filter(Ash.Expr.expr(status == :draft))
+    |> Ash.Changeset.before_action(fn changeset ->
+      findings =
+        AshMdm.Resolution.Validator.findings(
+          Map.new(
+            ~w(golden_resource kind produces requires cost_rank reference)a,
+            &{&1, Ash.Changeset.get_attribute(changeset, &1)}
+          )
+        )
 
       status = if(findings.errors == [], do: :validated, else: :draft)
 

@@ -18,6 +18,8 @@ defmodule AshMdm.Fixtures do
     resource AshMdm.Fixtures.AttributeAssertion
     resource AshMdm.Fixtures.CompletenessProfile
     resource AshMdm.Fixtures.AttributeGap
+    resource AshMdm.Fixtures.Resolver
+    resource AshMdm.Fixtures.TenantResolver
   end
 end
 
@@ -128,5 +130,38 @@ defmodule AshMdm.Fixtures.MatchCandidate do
   postgres do
     table "mdm_match_candidates"
     repo(AshMdm.Test.Repo)
+  end
+end
+
+defmodule AshMdm.Fixtures.Resolver do
+  @moduledoc "The macro-generated Resolver on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources, {:resolver, repo: AshMdm.Test.Repo, table: "mdm_resolvers"}
+end
+
+defmodule AshMdm.Fixtures.TenantResolver do
+  @moduledoc "The macro-generated Resolver on a base with attribute multitenancy."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources,
+      {:resolver, repo: AshMdm.Test.Repo, table: "mdm_tenant_resolvers", tenant?: true}
+
+  multitenancy do
+    strategy :attribute
+    attribute :organization_id
+  end
+
+  attributes do
+    attribute :organization_id, :uuid do
+      allow_nil? false
+      public? true
+    end
   end
 end

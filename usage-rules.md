@@ -60,6 +60,26 @@ natively; the package never assumes an actor model.
   value; `gap_kind` is computed at read, so nothing has to run for a value to
   go stale. Don't add a stored status.
 - The attribute gap macro ships no read policy either. Gate it on the golden.
+- `{:resolver, repo: ..., table: ..., tenant?: false}` declares one way to
+  produce attributes of a golden, as versioned data with the same draft,
+  validate, activate lifecycle and one-active index (per golden and name). Its
+  `kind` is closed (`AshMdm.Resolution.kinds/0`): `human`, `inference`,
+  `judgment`, `evidence`, `enrichment`. `:validate` refuses an unknown kind,
+  empty `produces`, an attribute both produced and required, a non-positive
+  `cost_rank`, an empty `reference`, and attributes the golden does not have.
+  `reference` is the host's own account of what runs it; the package never
+  interprets it.
+- `AshMdm.Resolution.plan/3` takes the gaps from `AshMdm.Completeness.gaps/3`,
+  the active resolvers and the attributes already held, and answers per gap
+  `:planned`, `:needs_input` or `:no_route`. Greedy by `cost_rank` then name; a
+  chain resolves in rounds, a requires cycle ends in `:needs_input`. A material
+  gap planned to a non-human kind comes back `needs_person: true`: the planner
+  never decides a person is unnecessary. A gap's `accepted_origins` narrow the
+  candidates to resolvers that can land an accepted origin (on a material gap,
+  that origin is `human`); if none can, the answer is `:no_route`. Only gaps
+  are planned, so a requirement that is not a gap comes back `:needs_input`
+  even if a resolver could produce it. It runs nothing and stores nothing;
+  executing a step and recording the attempt are host code.
 - `AshMdm.Tuning.propose/2` turns judged pairs into proposed rule weights.
   Write the result with the rule set's `:create_version` and have a person
   activate it. Never apply a proposal directly: a new content hash means the
