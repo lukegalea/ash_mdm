@@ -352,6 +352,20 @@ defmodule AshMdm.Resources do
           change AshMdm.Changes.OpenVersionChain
         end
 
+        create :create_version do
+          description "A successor with new rules, such as a tuning proposal. The predecessor is untouched."
+
+          argument :from_rule_set_id, :uuid do
+            allow_nil? false
+          end
+
+          accept [:rules, :survivorship]
+          change {AshMdm.Changes.SetContentHash, fields: [:rules, :survivorship]}
+
+          change {AshMdm.Changes.LinkVersionChain,
+                  argument: :from_rule_set_id, inherit: [:golden_resource]}
+        end
+
         update :activate do
           accept []
           validate attribute_equals(:status, :draft)
