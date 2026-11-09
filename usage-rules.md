@@ -38,6 +38,9 @@ natively; the package never assumes an actor model.
   so a retried job is safe. `:erase` exists only for a host's erasure path.
 - `AshMdm.Assertions.fold/3` is the fold over those rows. Band `:review` or
   `:omit`, retracted and blank statements do not compete; expired ones do.
+  Only a source's newest statement on an attribute competes, so re-asserting
+  corrects a value. Date a re-import by when the source said it, not when it
+  was read, or an identical value becomes a new row.
   Pass `depths:` from `chain_depths/2` so a survivor outranks what it absorbed.
   Don't rewrite an absorbed golden's assertions on merge: leave them and fold
   through the chain, so an unmerge is correct by construction.

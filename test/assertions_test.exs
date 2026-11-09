@@ -36,7 +36,7 @@ defmodule AshMdm.AssertionsTest do
   describe "the default order" do
     test "the value already held beats one that arrives later" do
       assertions = [
-        assertion("b", "name", "Later", %{observed_at: @late}),
+        assertion("b", "name", "Later", %{observed_at: @late, source: "erp"}),
         assertion("a", "name", "Held")
       ]
 
@@ -45,7 +45,7 @@ defmodule AshMdm.AssertionsTest do
 
     test "input order does not matter" do
       one = assertion("a", "name", "Held")
-      two = assertion("b", "name", "Later", %{observed_at: @late})
+      two = assertion("b", "name", "Later", %{observed_at: @late, source: "erp"})
 
       assert Assertions.fold(%{}, [one, two]) == Assertions.fold(%{}, [two, one])
     end
@@ -72,6 +72,90 @@ defmodule AshMdm.AssertionsTest do
 
       assert %{merged: %{"name" => "Survivor", "email" => "a@x.io"}} =
                Assertions.fold(%{}, assertions, depths: depths)
+    end
+  end
+
+  describe "a source speaks for itself once" do
+    test "a correction replaces the same source's earlier statement" do
+      assertions = [
+        assertion("a", "name", "Typo", %{origin_kind: :human, source: "steward"}),
+        assertion("b", "name", "Fixed", %{
+          origin_kind: :human,
+          source: "steward",
+          observed_at: @late
+        })
+      ]
+
+      assert %{merged: %{"name" => "Fixed"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "a refreshed import replaces what that source said before" do
+      assertions = [
+        assertion("a", "name", "Old Name"),
+        assertion("b", "name", "New Name", %{observed_at: @late})
+      ]
+
+      assert %{merged: %{"name" => "New Name"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "another source's older value still wins under non_null" do
+      assertions = [
+        assertion("a", "name", "Held", %{source: "erp"}),
+        assertion("b", "name", "First"),
+        assertion("c", "name", "Second", %{observed_at: @late})
+      ]
+
+      assert %{merged: %{"name" => "Held"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "retracting the newest brings back the one before" do
+      assertions = [
+        assertion("a", "name", "Earlier"),
+        assertion("b", "name", "Newest", %{observed_at: @late}),
+        assertion("c", "name", nil, %{origin_kind: :retraction, retracts_id: "b", value: nil})
+      ]
+
+      assert %{merged: %{"name" => "Earlier"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "a newer statement waiting on a person doesn't displace the admitted one" do
+      assertions = [
+        assertion("a", "name", "Admitted"),
+        assertion("b", "name", "Pending", %{band: :review, observed_at: @late})
+      ]
+
+      assert %{merged: %{"name" => "Admitted"}} = Assertions.fold(%{}, assertions)
+    end
+
+    test "one attribute's statement doesn't displace another's" do
+      assertions = [
+        assertion("a", "name", "Acme"),
+        assertion("b", "email", "a@x.io", %{observed_at: @late})
+      ]
+
+      assert %{merged: %{"name" => "Acme", "email" => "a@x.io"}} =
+               Assertions.fold(%{}, assertions)
+    end
+
+    test "the same source on an absorbed golden stays separate, so unmerge is intact" do
+      assertions = [
+        assertion("a", "name", "Survivor"),
+        assertion("b", "name", "Absorbed", %{golden_id: @absorbed, observed_at: @late})
+      ]
+
+      depths = Assertions.chain_depths(@golden, [{@absorbed, @golden}])
+      assert %{merged: %{"name" => "Survivor"}} = Assertions.fold(%{}, assertions, depths: depths)
+    end
+
+    test "origin kinds are separate speakers" do
+      policy = %{"default" => "origin_rank", "origin_rank" => ["import", "enrichment"]}
+
+      assertions = [
+        assertion("a", "name", "Imported"),
+        assertion("b", "name", "Enriched", %{origin_kind: :enrichment, observed_at: @late})
+      ]
+
+      assert %{merged: %{"name" => "Imported"}} = Assertions.fold(policy, assertions)
     end
   end
 
@@ -163,8 +247,8 @@ defmodule AshMdm.AssertionsTest do
 
       assertions = [
         assertion("a", "name", "Thin"),
-        assertion("b", "name", "Full", %{origin_ref: ref, observed_at: @late}),
-        assertion("c", "email", "f@x.io", %{origin_ref: ref, observed_at: @late})
+        assertion("b", "name", "Full", %{source: "erp", origin_ref: ref, observed_at: @late}),
+        assertion("c", "email", "f@x.io", %{source: "erp", origin_ref: ref, observed_at: @late})
       ]
 
       assert %{merged: %{"name" => "Full"}} = Assertions.fold(policy, assertions)
