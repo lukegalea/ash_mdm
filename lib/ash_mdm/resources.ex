@@ -37,6 +37,21 @@ defmodule AshMdm.Resources do
       column to the one-active index and scopes activation-supersedence to
       the tenant.
 
+  ## `:attribute_assertion`
+
+  One append-only row per statement that an attribute of a golden record has
+  a value, with its origin. See `AshMdm.Assertions`. Options:
+
+    * `:repo`, `:table` — required; the macro owns the `postgres` block.
+    * `:tenant?` — pass `true` when the host's base supplies
+      `organization_id`; it joins the lookup index.
+    * `:sensitive_value?` — pass `true` when the golden's attributes are
+      sensitive, such as a person's name and email.
+
+  The macro ships no read policy. A host whose goldens are not visible to
+  everyone must gate reads on the golden itself, or this table discloses
+  what the golden's own policies hide.
+
   ## `:match_rule_set`
 
   One row per version of the match rules for a golden resource: `rules`
@@ -424,6 +439,166 @@ defmodule AshMdm.Resources do
         update :record_verdict_ref do
           description "Stamps the verdict/judgment pointers after a gated decision committed."
           accept [:human_verdict_ref]
+        end
+      end
+    end
+  end
+
+  defmacro __using__({:attribute_assertion, opts}) do
+    opts = Keyword.validate!(opts, [:repo, :table, tenant?: false, sensitive_value?: false])
+    repo = Keyword.fetch!(opts, :repo)
+    table = Keyword.fetch!(opts, :table)
+    tenant? = Keyword.fetch!(opts, :tenant?)
+    sensitive_value? = Keyword.fetch!(opts, :sensitive_value?)
+    origin_kinds = AshMdm.Assertions.origin_kinds()
+
+    index_cols =
+      if tenant?,
+        do: [:organization_id, :golden_resource, :golden_id, :attribute],
+        else: [:golden_resource, :golden_id, :attribute]
+
+    index_name = "#{table}_statements_of"
+
+    quote location: :keep do
+      attributes do
+        uuid_primary_key :id
+
+        attribute :golden_resource, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 256
+        end
+
+        attribute :golden_id, :uuid do
+          allow_nil? false
+          public? true
+
+          description "The golden this statement is about. Deliberately no foreign key: a host's golden may live in a view it cannot reference."
+        end
+
+        attribute :attribute, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 128
+        end
+
+        attribute :value, :map do
+          public? true
+          sensitive? unquote(sensitive_value?)
+
+          description "The value, wrapped (AshMdm.Assertions.wrap_value/1). Nil only on a retraction."
+        end
+
+        attribute :origin_kind, :atom do
+          allow_nil? false
+          public? true
+          constraints one_of: unquote(origin_kinds)
+        end
+
+        attribute :origin_ref, :map do
+          allow_nil? false
+          public? true
+
+          description "What exactly said this: a mapping and landing, a decision version and its rules, an observation, a person's verdict."
+        end
+
+        attribute :source, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 64
+
+          description "The named source a survivorship source_rank compares."
+        end
+
+        attribute :band, :atom do
+          public? true
+          constraints one_of: [:admit, :review, :omit]
+
+          description "Nil when no band applies. Only nil and :admit compete in the fold."
+        end
+
+        attribute :confidence, :decimal do
+          public? true
+          constraints min: 0, max: 1
+        end
+
+        attribute :observed_at, :utc_datetime_usec do
+          allow_nil? false
+          public? true
+          description "When the origin said it, not when this row was written."
+        end
+
+        attribute :valid_until, :utc_datetime_usec do
+          public? true
+        end
+
+        attribute :retracts_id, :uuid do
+          public? true
+          description "On a retraction, the assertion it withdraws."
+        end
+
+        attribute :content_digest, :string do
+          allow_nil? false
+          public? false
+          description "Identity of the statement's content, so a retried write is a no-op."
+        end
+
+        create_timestamp :inserted_at
+      end
+
+      identities do
+        identity :one_statement, [:content_digest]
+      end
+
+      actions do
+        read :read do
+          primary? true
+        end
+
+        create :assert do
+          description """
+          Records one statement. There is no update: a correction is a new
+          statement, a withdrawal is a retraction. Re-asserting identical
+          content changes nothing.
+          """
+
+          accept [
+            :golden_resource,
+            :golden_id,
+            :attribute,
+            :origin_kind,
+            :origin_ref,
+            :source,
+            :band,
+            :confidence,
+            :observed_at,
+            :valid_until,
+            :retracts_id
+          ]
+
+          argument :value, :term do
+            sensitive? unquote(sensitive_value?)
+          end
+
+          upsert? true
+          upsert_identity :one_statement
+          upsert_fields []
+
+          validate AshMdm.Validations.ValidAssertion
+          change AshMdm.Changes.SealAssertion
+        end
+
+        destroy :erase do
+          description "Removes a statement for a host's erasure path. Never part of ordinary stewardship."
+        end
+      end
+
+      postgres do
+        repo(unquote(repo))
+        table unquote(table)
+
+        custom_indexes do
+          index(unquote(Macro.escape(index_cols)), name: unquote(index_name))
         end
       end
     end

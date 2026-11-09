@@ -205,3 +205,37 @@ defmodule AshMdm.Changes.ActivateRuleSet do
     end)
   end
 end
+
+defmodule AshMdm.Changes.SealAssertion do
+  @moduledoc """
+  Wraps an assertion's value for storage and stamps the digest of its
+  content, so writing the same statement twice (a retried job) is one row.
+  """
+
+  use Ash.Resource.Change
+
+  @sealed ~w(golden_resource golden_id attribute origin_kind origin_ref source band confidence observed_at valid_until retracts_id)a
+
+  @impl true
+  def change(%{valid?: false} = changeset, _opts, _context), do: changeset
+
+  def change(changeset, _opts, _context) do
+    value =
+      case Ash.Changeset.get_argument(changeset, :value) do
+        nil -> nil
+        value -> AshMdm.Assertions.wrap_value(value)
+      end
+
+    content =
+      @sealed
+      |> Map.new(&{&1, Ash.Changeset.get_attribute(changeset, &1)})
+      |> Map.put(:value, value)
+
+    changeset
+    |> Ash.Changeset.force_change_attribute(:value, value)
+    |> Ash.Changeset.force_change_attribute(
+      :content_digest,
+      AshMdm.Mapping.ContentHash.hash!(content)
+    )
+  end
+end

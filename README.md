@@ -21,6 +21,7 @@ use AshMdm.Resources, {:mapping, repo: MyApp.Repo, table: "mdm_mappings", tenant
 | Mappings | `{:mapping, …}` | Versioned schema mappings (ingress + egress); draft → validate → activate; activation supersedes and nothing is overwritten |
 | Match rule sets | `{:match_rule_set, …}` | Deterministic matching as data — exact/fuzzy rules with weights, survivorship declared per attribute, unknown strategies refused at activation |
 | Match candidates | `{:match_candidate, …}` | (staged, golden) pairs with score and per-rule explanation, banded `admit/review/omit` by the host's own band table |
+| Attribute assertions | `{:attribute_assertion, …}` | Append-only statements of a golden's attribute values, each with its origin; `AshMdm.Assertions` folds them into values and per-attribute provenance |
 
 Supporting modules: `AshMdm.Mapping.Evaluator` (the rule fold),
 `AshMdm.Mapping.Validator` (the activate gate: total accounting with

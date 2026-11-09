@@ -10,6 +10,7 @@
   AshMdm.Fixtures.Person,
   AshMdm.Fixtures.MatchRuleSet,
   AshMdm.Fixtures.MatchCandidate,
+  AshMdm.Fixtures.AttributeAssertion,
   AshMdm.Test.Repo
 ]
 |> Enum.each(&Code.ensure_loaded!/1)

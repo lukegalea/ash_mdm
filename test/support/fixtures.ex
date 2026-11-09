@@ -15,6 +15,7 @@ defmodule AshMdm.Fixtures do
     resource AshMdm.Fixtures.Person
     resource AshMdm.Fixtures.MatchRuleSet
     resource AshMdm.Fixtures.MatchCandidate
+    resource AshMdm.Fixtures.AttributeAssertion
   end
 end
 
@@ -68,6 +69,17 @@ defmodule AshMdm.Fixtures.Mapping do
 
   use AshMdm.Resources,
       {:mapping, repo: AshMdm.Test.Repo, table: "mdm_mappings", tenant?: false}
+end
+
+defmodule AshMdm.Fixtures.AttributeAssertion do
+  @moduledoc "The macro-generated AttributeAssertion on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources,
+      {:attribute_assertion, repo: AshMdm.Test.Repo, table: "mdm_attribute_assertions"}
 end
 
 defmodule AshMdm.Fixtures.MatchRuleSet do
