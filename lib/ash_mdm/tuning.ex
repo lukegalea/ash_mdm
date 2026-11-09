@@ -29,10 +29,13 @@ defmodule AshMdm.Tuning do
   and reported `:floored`, which is a person's cue to look at that rule.
 
   When some rules are `:insufficient_labels` and others are tuned, the two
-  sets would be on different scales, so the tuned rules are rescaled to keep
-  the combined weight share they had before (the sum of their prior weights,
-  a missing prior counting as 1.0, over the sum of their new weights), and the
-  floor applies afterwards. When every rule is tuned nothing is rescaled.
+  sets would be on different scales, so the rules that earned a weight are
+  rescaled to keep the combined share the tuned rules had before (the sum of
+  all tuned rules' prior weights, a missing prior counting as 1.0, over the
+  sum of the earned weights), and the floor applies afterwards. A floored rule
+  stays at the floor: scaling it up would hand back the weight its labels just
+  took away. When every rule is tuned, or none earned a weight, nothing is
+  rescaled.
   Each report entry says which happened: `rescaled` and `scale`, the factor
   applied or nil.
   """
@@ -103,19 +106,22 @@ defmodule AshMdm.Tuning do
 
   defp rescale(results) do
     {kept, tuned} = Enum.split_with(results, &insufficient?/1)
+    earned = Enum.reject(tuned, &floored?/1)
 
-    if kept == [] or tuned == [],
+    if kept == [] or earned == [],
       do: results,
-      else: Enum.map(results, &rescaled(&1, scale_of(tuned)))
+      else: Enum.map(results, &rescaled(&1, scale_of(tuned, earned)))
   end
 
   defp insufficient?({_rule, entry}), do: entry.status == :insufficient_labels
 
-  defp scale_of(tuned) do
+  defp floored?({_rule, entry}), do: entry.status == :floored
+
+  defp scale_of(tuned, earned) do
     prior =
       tuned |> Enum.map(fn {_, entry} -> prior_weight(entry.weight_before) end) |> Enum.sum()
 
-    new = tuned |> Enum.map(fn {_, entry} -> entry.weight_after end) |> Enum.sum()
+    new = earned |> Enum.map(fn {_, entry} -> entry.weight_after end) |> Enum.sum()
 
     prior / new
   end
@@ -123,7 +129,9 @@ defmodule AshMdm.Tuning do
   defp prior_weight(weight) when is_number(weight) and weight > 0, do: weight * 1.0
   defp prior_weight(_missing), do: 1.0
 
-  defp rescaled({_rule, %{status: :insufficient_labels}} = kept, _scale), do: kept
+  defp rescaled({_rule, %{status: status}} = kept, _scale)
+       when status in [:insufficient_labels, :floored],
+       do: kept
 
   defp rescaled({rule, entry}, scale) do
     scaled = entry.weight_after * scale

@@ -32,11 +32,13 @@ defmodule AshMdm.Completeness do
   `:stale`, and `:satisfied`.
 
   A requirement is judged against every competing statement holding the
-  standing value, not only the fold's winner, and the best outcome stands; a
-  tie goes to the newest statement, and the assessment names that statement.
-  So a value later confirmed by an accepted origin, or by fresher evidence, is
-  no longer a gap. A different value from an accepted origin changes nothing:
-  it is not the standing value.
+  standing value, not only the fold's winner, and the best outcome stands. A
+  tie goes to the statement that keeps that outcome longest, then the newest,
+  and the assessment names that statement: a projected row re-judges only the
+  statement it names, so naming one about to lapse would report a gap while
+  another statement still holds the value. So a value later confirmed by an
+  accepted origin, or by fresher evidence, is no longer a gap. A different
+  value from an accepted origin changes nothing: it is not the standing value.
   """
 
   alias AshMdm.Assertions
@@ -44,6 +46,7 @@ defmodule AshMdm.Completeness do
   @needs ~w(required optional out_of_scope)
   @kinds [:missing, :origin_not_accepted, :expired, :stale, :satisfied]
   @best_first Enum.reverse(@kinds)
+  @never DateTime.to_unix(~U[9999-12-31 23:59:59.999999Z], :microsecond)
 
   @doc "The closed vocabulary of what a requirement can need."
   def needs, do: @needs
@@ -93,11 +96,36 @@ defmodule AshMdm.Completeness do
   defp judge(_requirement, [], _now), do: {:missing, nil}
 
   # Supporting statements are newest first and `min_by` keeps the first of a
-  # tie, so equal outcomes go to the newest.
+  # tie, so statements holding an outcome equally long go to the newest.
   defp judge(requirement, supporting, now) do
     supporting
     |> Enum.map(&{kind(requirement, &1, now), &1})
-    |> Enum.min_by(fn {kind, _statement} -> Enum.find_index(@best_first, &(&1 == kind)) end)
+    |> Enum.min_by(fn {kind, statement} ->
+      {Enum.find_index(@best_first, &(&1 == kind)), -holds_until(kind, requirement, statement)}
+    end)
+  end
+
+  defp holds_until(:satisfied, requirement, statement) do
+    earliest([Map.get(statement, :valid_until), stale_at(requirement, statement)])
+  end
+
+  defp holds_until(:stale, _requirement, statement) do
+    earliest([Map.get(statement, :valid_until)])
+  end
+
+  defp holds_until(_kind, _requirement, _statement), do: @never
+
+  defp stale_at(%{"max_age_days" => days}, statement) when is_integer(days) do
+    DateTime.add(statement.observed_at, days, :day)
+  end
+
+  defp stale_at(_requirement, _statement), do: nil
+
+  defp earliest(moments) do
+    moments
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&DateTime.to_unix(&1, :microsecond))
+    |> Enum.min(fn -> @never end)
   end
 
   defp kind(requirement, statement, now) do

@@ -222,6 +222,35 @@ defmodule AshMdm.CompletenessTest do
                Completeness.assess([requirement], [expired, refused], now: @now)
     end
 
+    test "equal outcomes go to the statement that holds longest, not the newest" do
+      expiring = @now |> DateTime.add(1, :day)
+
+      assertions = [
+        statement("name", "Acme", %{id: "lasting", source: "erp", observed_at: @old}),
+        statement("name", "Acme", %{id: "soon", observed_at: @recent, valid_until: expiring})
+      ]
+
+      assert [%{kind: :satisfied, assertion_id: "lasting", valid_until: nil}] =
+               Completeness.assess([need("name")], assertions, now: @now)
+    end
+
+    test "a value going stale first loses to one that lasts" do
+      requirement = need("name", %{"max_age_days" => 30})
+      fresh_until_june = DateTime.add(@now, -29, :day)
+
+      assertions = [
+        statement("name", "Acme", %{id: "aging", source: "erp", observed_at: fresh_until_june}),
+        statement("name", "Acme", %{
+          id: "soon",
+          observed_at: @recent,
+          valid_until: DateTime.add(@now, 1, :hour)
+        })
+      ]
+
+      assert [%{assertion_id: "aging"}] =
+               Completeness.assess([requirement], assertions, now: @now)
+    end
+
     test "equal outcomes go to the newest statement" do
       assertions = [
         statement("name", "Acme", %{id: "older", source: "erp", observed_at: @old}),

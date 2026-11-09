@@ -251,6 +251,39 @@ defmodule AshMdm.CompletenessProfileTest do
 
     defp hours_ago(hours), do: DateTime.add(DateTime.utc_now(), -hours, :hour)
 
+    test "reads what assess/3 says after the newest supporter lapses" do
+      assessed_at = DateTime.add(DateTime.utc_now(), -2, :day)
+
+      statement = fn id, source, valid_until ->
+        %{
+          id: id,
+          attribute: "name",
+          value: AshMdm.Assertions.wrap_value("Acme"),
+          origin_kind: :import,
+          origin_ref: %{"landing" => id},
+          source: source,
+          band: nil,
+          observed_at: DateTime.add(assessed_at, -1, :day),
+          valid_until: valid_until,
+          retracts_id: nil
+        }
+      end
+
+      assertions = [
+        statement.(Ash.UUID.generate(), "erp", nil),
+        statement.(Ash.UUID.generate(), "doc", DateTime.add(assessed_at, 1, :day))
+        |> Map.put(:observed_at, assessed_at)
+      ]
+
+      requirement = entry("name", "required")
+
+      [entry] = Completeness.assess([requirement], assertions, now: assessed_at)
+      row = project!(Map.take(entry, [:has_value, :standing_origin, :observed_at, :valid_until]))
+
+      assert [%{kind: :satisfied}] = Completeness.assess([requirement], assertions)
+      assert gap_kind(row) == :satisfied
+    end
+
     test "can be filtered, which a manual read could not" do
       golden_id = Ash.UUID.generate()
       project!(%{golden_id: golden_id, has_value: false, standing_origin: nil, observed_at: nil})

@@ -142,6 +142,24 @@ defmodule AshMdm.TuningTest do
       assert_in_delta weight_of(result, "email"), 1.0, 0.001
     end
 
+    test "a floored rule keeps the floor, however large its prior" do
+      worthless = %{"name" => "worthless", "kind" => "exact", "fields" => ["a"], "weight" => 5.0}
+      result = Tuning.propose([worthless, @kept], balanced("worthless", 10, 10))
+
+      assert weight_of(result, "worthless") == 0.01
+      assert report_for(result, "worthless").status == :floored
+      assert report_for(result, "worthless").rescaled == false
+    end
+
+    test "a floored rule's share goes to the rules that earned one" do
+      worthless = %{"name" => "worthless", "kind" => "exact", "fields" => ["a"], "weight" => 5.0}
+      labelled = balanced("worthless", 10, 10) ++ balanced("email", 18, 2)
+      result = Tuning.propose([worthless, @email, @kept], labelled)
+
+      assert weight_of(result, "worthless") == 0.01
+      assert_in_delta weight_of(result, "email"), 6.0, 0.001
+    end
+
     test "the floor applies after the rescale" do
       strong = %{"name" => "strong", "kind" => "exact", "fields" => ["a"], "weight" => 0.5}
       weak = %{"name" => "weak", "kind" => "exact", "fields" => ["b"], "weight" => 0.5}

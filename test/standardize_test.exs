@@ -66,6 +66,20 @@ defmodule AshMdm.StandardizeTest do
                "limited brands of ohio"
     end
 
+    for {input, expected} <- [
+          {"eni s.p.a.", "eni"},
+          {"eni, s.p.a.", "eni"},
+          {"eni s.p.a", "eni"},
+          {"eni s.p.a.,", "eni"},
+          {"eni s.p.a., inc.", "eni"},
+          {"s.p.a.", "s.p.a."},
+          {"s.p.a. foods", "spa foods"}
+        ] do
+      test "the dotted Italian form: #{input}" do
+        assert Standardize.run(unquote(input), ["legal_suffix"]) == unquote(expected)
+      end
+    end
+
     test "spa is a word, not a legal form" do
       assert Standardize.run("hillside spa", ["legal_suffix"]) == "hillside spa"
     end

@@ -537,6 +537,18 @@ defmodule AshMdm.AssertionsTest do
              ]) == ["a"]
     end
 
+    test "a blank statement is never pending: it could not stand if admitted" do
+      assert pending_ids([review("a", "   ")]) == []
+    end
+
+    test "a retraction waiting on a person is not pending once its target is gone" do
+      assert pending_ids([
+               assertion("target", "name", "Acme"),
+               retraction("settled", "target", %{observed_at: @late}),
+               retraction("waiting", "target", %{observed_at: @late, band: :review})
+             ]) == []
+    end
+
     test "a retraction waiting on a person leaves its target pending" do
       assert pending_ids([
                review("a", "1"),

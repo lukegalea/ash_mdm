@@ -20,9 +20,13 @@ defmodule AshMdm.Standardize do
 
   A name that is nothing but a legal form keeps it, so `Limited` stays a name
   and doesn't become a blank that disagrees with every other record.
+
+  The Italian `S.p.A.` strips only with its dots: bare `spa` is an English word
+  in too many business names to be a legal form.
   """
 
   @standardizers ~w(unaccent legal_suffix lei)
+  @dotted_spa "s.p.a"
 
   # Longest first, so a phrase is removed before any word inside it.
   @suffixes [
@@ -34,6 +38,7 @@ defmodule AshMdm.Standardize do
     ~w(corporation),
     ~w(company),
     ~w(limited),
+    [@dotted_spa],
     ~w(gmbh),
     ~w(sarl),
     ~w(corp),
@@ -82,7 +87,7 @@ defmodule AshMdm.Standardize do
 
     case strip_suffixes(Enum.reverse(tokens)) do
       [] -> value
-      kept -> kept |> Enum.reverse() |> Enum.join(" ")
+      kept -> kept |> Enum.reverse() |> Enum.map_join(" ", &undotted/1)
     end
   end
 
@@ -93,8 +98,15 @@ defmodule AshMdm.Standardize do
 
   # `l.l.c.` and `inc,` are the same tokens as `llc` and `inc`.
   defp clean_token(token) do
-    token |> String.replace(".", "") |> String.trim_trailing(",")
+    if String.replace(token, ~r/[.,]+$/u, "") == @dotted_spa do
+      @dotted_spa
+    else
+      token |> String.replace(".", "") |> String.trim_trailing(",")
+    end
   end
+
+  defp undotted(@dotted_spa), do: "spa"
+  defp undotted(token), do: token
 
   defp strip_suffixes(["" | rest]), do: strip_suffixes(rest)
   defp strip_suffixes(["&" | rest]), do: strip_suffixes(rest)

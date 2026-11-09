@@ -127,6 +127,10 @@ defmodule AshMdm.Assertions do
   same origin kind and source, on that golden and attribute, supersedes a
   review; one that was omitted or retracted does not. A retraction waiting on
   a person is never superseded: each one names its own target.
+
+  Admitting a statement must be able to change something, so a blank value
+  is never pending, and neither is a retraction whose target is already
+  withdrawn.
   """
   @spec pending([map()]) :: [map()]
   def pending(assertions) when is_list(assertions) do
@@ -141,6 +145,7 @@ defmodule AshMdm.Assertions do
     Enum.filter(assertions, fn assertion ->
       Map.get(assertion, :band) == :review and
         not MapSet.member?(withdrawn, Map.get(assertion, :id)) and
+        can_take_effect?(assertion, withdrawn) and
         not superseded?(assertion, newest)
     end)
   end
@@ -193,6 +198,12 @@ defmodule AshMdm.Assertions do
   defp holder(assertion) do
     {Map.get(assertion, :golden_id), assertion.origin_kind, assertion.source}
   end
+
+  defp can_take_effect?(%{origin_kind: :retraction} = retraction, withdrawn) do
+    not MapSet.member?(withdrawn, Map.get(retraction, :retracts_id))
+  end
+
+  defp can_take_effect?(assertion, _withdrawn), do: not blank?(unwrap_value(assertion.value))
 
   defp superseded?(%{origin_kind: :retraction}, _newest), do: false
 

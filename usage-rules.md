@@ -78,7 +78,9 @@ natively; the package never assumes an actor model.
 - `AshMdm.Completeness.assess/3` is the pure answer, one entry per required
   attribute. It judges a requirement against every competing statement holding
   the standing value, so an import later confirmed by an accepted origin or
-  fresher evidence closes the gap; a different value does not. `{:attribute_gap, ...}` is its rebuildable projection so a board
+  fresher evidence closes the gap; a different value does not. A tie names the
+  statement that keeps the outcome longest, since a projected row re-judges
+  only that one. `{:attribute_gap, ...}` is its rebuildable projection so a board
   can filter and count. Project with `:project`. It stores inputs, never a
   value; `gap_kind` is computed at read, so nothing has to run for a value to
   go stale. Don't add a stored status.
@@ -107,8 +109,9 @@ natively; the package never assumes an actor model.
   Write the result with the rule set's `:create_version` and have a person
   activate it. Never apply a proposal directly: a new content hash means the
   bands must be earned again. When some rules lack labels and others are
-  tuned, the tuned weights are rescaled to keep their combined share; a rule
-  set tuned whole is not rescaled.
+  tuned, the weights that were earned are rescaled to keep the tuned rules'
+  combined share and a floored rule stays at the floor; a rule set tuned whole
+  is not rescaled.
 - A match rule may list `"standardize"`, a closed vocabulary in
   `AshMdm.Standardize`, applied after trim and lowercase. `lei` returns nil for
   a value that fails its check, so a bad identifier counts as absent. A rule
@@ -116,6 +119,8 @@ natively; the package never assumes an actor model.
   share a stem. `unaccent` removes combining marks only after a Latin base
   letter, because marks in other scripts distinguish words. A blank value is
   missing, not agreement, including one a standardizer has emptied.
+  `legal_suffix` strips the Italian form only as dotted `S.p.A.`; bare `spa` is
+  a word.
 - `:activate` refuses a rule with an unknown kind, algorithm or standardizer,
   a non-positive weight, or a duplicate name. A missing value adds
   `"missing" => true` to that rule's explanation entry.
