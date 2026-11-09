@@ -4,7 +4,7 @@
 them on its own platform base — host policies, tenancy and audit govern
 natively; the package never assumes an actor model.
 
-- Four macros, each used inside the host's own `use Ash.Resource` module:
+- Six macros, each used inside the host's own `use Ash.Resource` module:
   `use AshMdm.Resources, {:mapping, repo: ..., table: ..., tenant?: false}`,
   `{:match_rule_set, repo: ..., table: ...}` and `{:match_candidate, opts}`.
   `:mapping` and `:match_rule_set` own their `postgres` block (`:repo` and
@@ -44,6 +44,19 @@ natively; the package never assumes an actor model.
 - The attribute assertion macro ships no read policy and has no foreign key
   to the golden. A host must gate its reads on the golden, or the table
   discloses what the golden's own policies hide.
+- `{:completeness_profile, repo: ..., table: ..., tenant?: false}` declares,
+  per golden resource and purpose, what each attribute needs and why. It has
+  the same draft, validate, activate lifecycle as a mapping, and the same
+  total accounting: every public attribute appears once, `required`,
+  `optional` or `out_of_scope`, each with a `because`.
+- `accepted_origins` is a list per requirement, not a global strength order.
+  Don't add a ranking of origins to answer "is this good enough".
+- `AshMdm.Completeness.assess/3` is the pure answer, one entry per required
+  attribute. `{:attribute_gap, ...}` is its rebuildable projection so a board
+  can filter and count. Project with `:project`. It stores inputs, never a
+  value; `gap_kind` is computed at read, so nothing has to run for a value to
+  go stale. Don't add a stored status.
+- The attribute gap macro ships no read policy either. Gate it on the golden.
 - Every create action on a versioned resource stamps `content_hash` with
   `AshMdm.Changes.SetContentHash`, whose `fields:` option names what the hash
   covers: `field_rules` on a mapping, `rules` and `survivorship` on a rule set.

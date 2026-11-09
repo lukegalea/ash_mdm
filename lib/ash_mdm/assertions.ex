@@ -63,18 +63,45 @@ defmodule AshMdm.Assertions do
   """
   @spec fold(map(), [map()], keyword()) :: %{merged: map(), provenance: map()}
   def fold(policy, assertions, opts \\ []) when is_map(policy) and is_list(assertions) do
+    policy |> standing(assertions, opts) |> Map.delete(:statements)
+  end
+
+  @doc """
+  `fold/3`, plus `statements`: the assertion standing behind each attribute.
+  """
+  @spec standing(map(), [map()], keyword()) :: %{
+          merged: map(),
+          provenance: map(),
+          statements: map()
+        }
+  def standing(policy, assertions, opts \\ []) when is_map(policy) and is_list(assertions) do
     depths = Keyword.get(opts, :depths, %{})
 
     case assertions |> competing() |> Enum.sort_by(&order_key(&1, depths)) |> records() do
       [] ->
-        %{merged: %{}, provenance: %{}}
+        %{merged: %{}, provenance: %{}, statements: %{}}
 
       records ->
         %{merged: merged, provenance: provenance, winners: winners} =
           Survivorship.resolve_with_winners(policy, records)
 
-        %{merged: merged, provenance: enrich_provenance(provenance, winners)}
+        %{
+          merged: merged,
+          provenance: enrich_provenance(provenance, winners),
+          statements: Map.new(winners, fn {key, winner} -> {key, winner.record[key]} end)
+        }
     end
+  end
+
+  @doc "The statements waiting on a person: banded `:review` and not retracted."
+  @spec pending([map()]) :: [map()]
+  def pending(assertions) when is_list(assertions) do
+    retracted = retracted_ids(assertions)
+
+    Enum.filter(assertions, fn assertion ->
+      Map.get(assertion, :band) == :review and
+        not MapSet.member?(retracted, Map.get(assertion, :id))
+    end)
   end
 
   @doc """
@@ -103,8 +130,7 @@ defmodule AshMdm.Assertions do
   end
 
   defp competing(assertions) do
-    retracted =
-      for %{origin_kind: :retraction, retracts_id: id} <- assertions, into: MapSet.new(), do: id
+    retracted = retracted_ids(assertions)
 
     Enum.filter(assertions, fn assertion ->
       assertion.origin_kind != :retraction and
@@ -112,6 +138,10 @@ defmodule AshMdm.Assertions do
         Map.get(assertion, :band) in [nil, :admit] and
         not blank?(unwrap_value(assertion.value))
     end)
+  end
+
+  defp retracted_ids(assertions) do
+    for %{origin_kind: :retraction, retracts_id: id} <- assertions, into: MapSet.new(), do: id
   end
 
   defp blank?(nil), do: true
@@ -140,14 +170,14 @@ defmodule AshMdm.Assertions do
   end
 
   defp record([first | _] = group) do
-    {attributes, assertion_ids} =
-      Enum.reduce(group, {%{}, %{}}, fn assertion, {values, ids} ->
+    {attributes, statements} =
+      Enum.reduce(group, {%{}, %{}}, fn assertion, {values, statements} ->
         {Map.put_new(values, assertion.attribute, unwrap_value(assertion.value)),
-         Map.put_new(ids, assertion.attribute, Map.get(assertion, :id))}
+         Map.put_new(statements, assertion.attribute, assertion)}
       end)
 
     %{
-      record: assertion_ids,
+      record: statements,
       source: first.source,
       origin: first.origin_kind,
       observed_at: first.observed_at,
@@ -164,7 +194,7 @@ defmodule AshMdm.Assertions do
         winner ->
           {attribute,
            Map.merge(entry, %{
-             "assertion_id" => Map.get(winner.record, attribute),
+             "assertion_id" => Map.get(Map.fetch!(winner.record, attribute), :id),
              "origin" => to_string(winner.origin)
            })}
       end

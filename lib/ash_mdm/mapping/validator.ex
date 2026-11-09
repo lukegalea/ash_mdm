@@ -332,6 +332,15 @@ defmodule AshMdm.Mapping.Validator do
     end
   end
 
+  @doc """
+  The attributes a golden resource must account for, resolved through the
+  host's allowlist: `{:ok, [%{name:, type:}]}` or `{:unknown_target, name}`.
+  """
+  def accountable_attributes(name) when is_binary(name), do: target_attributes(name, [])
+
+  @doc "An `:unknown_target` finding unless the host's allowlist admits this resource."
+  def unknown_target_findings(name), do: unknown_targets(name)
+
   defp target_attributes(name, _opts) when is_binary(name) do
     allowlist = Application.get_env(:ash_mdm, :allowed_targets)
 
