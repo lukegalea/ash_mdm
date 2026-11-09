@@ -89,7 +89,15 @@ defmodule AshMdm.Changes.LinkVersionChain do
           authorize?: false
         )
 
-      changeset
+      opts[:inherit]
+      |> List.wrap()
+      |> Enum.reduce(changeset, fn attribute, changeset ->
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          attribute,
+          Map.fetch!(predecessor, attribute)
+        )
+      end)
       |> Ash.Changeset.force_change_attribute(:supersedes_id, predecessor.id)
       |> Ash.Changeset.force_change_attribute(:root_id, predecessor.root_id || predecessor.id)
       |> Ash.Changeset.force_change_attribute(:version, (predecessor.version || 1) + 1)

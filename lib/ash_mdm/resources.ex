@@ -709,9 +709,11 @@ defmodule AshMdm.Resources do
             allow_nil? false
           end
 
-          accept [:golden_resource, :purpose, :requirements, :activation_note]
+          accept [:requirements, :activation_note]
           change {AshMdm.Changes.SetContentHash, fields: [:requirements]}
-          change {AshMdm.Changes.LinkVersionChain, argument: :from_profile_id}
+
+          change {AshMdm.Changes.LinkVersionChain,
+                  argument: :from_profile_id, inherit: [:golden_resource, :purpose]}
         end
 
         update :validate do

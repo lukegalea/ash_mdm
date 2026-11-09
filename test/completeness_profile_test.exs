@@ -124,19 +124,33 @@ defmodule AshMdm.CompletenessProfileTest do
         Profile
         |> Ash.Changeset.for_create(:create_version, %{
           from_profile_id: first.id,
-          golden_resource: @golden,
-          purpose: "payment",
           requirements: total(%{"name" => entry("name", "required")})
         })
         |> Ash.create!(authorize?: false)
         |> run(:validate)
         |> run(:activate)
 
+      assert second.golden_resource == @golden
+      assert second.purpose == "payment"
       assert second.version == 2
       assert second.root_id == first.id
       assert second.supersedes_id == first.id
       assert second.status == :active
       assert %{status: :retired} = Ash.get!(Profile, first.id, authorize?: false)
+    end
+
+    test "a version cannot move to another purpose" do
+      first = total() |> draft!()
+
+      assert_raise Ash.Error.Invalid, fn ->
+        Profile
+        |> Ash.Changeset.for_create(:create_version, %{
+          from_profile_id: first.id,
+          purpose: "other",
+          requirements: total()
+        })
+        |> Ash.create!(authorize?: false)
+      end
     end
 
     test "another purpose stays active alongside" do
