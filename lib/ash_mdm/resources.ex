@@ -374,6 +374,7 @@ defmodule AshMdm.Resources do
           # way unknown mapping operators are: a typo must not silently
           # merge with the default.
           validate AshMdm.Validations.ValidSurvivorship
+          validate AshMdm.Validations.ValidMatchRules
           change AshMdm.Changes.ActivateRuleSet
         end
 

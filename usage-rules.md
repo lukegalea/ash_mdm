@@ -64,6 +64,14 @@ natively; the package never assumes an actor model.
   Write the result with the rule set's `:create_version` and have a person
   activate it. Never apply a proposal directly: a new content hash means the
   bands must be earned again.
+- A match rule may list `"standardize"`, a closed vocabulary in
+  `AshMdm.Standardize`, applied after trim and lowercase. `lei` returns nil for
+  a value that fails its check, so a bad identifier counts as absent. A rule
+  using `legal_suffix` should not decide a merge alone: two companies can
+  share a stem.
+- `:activate` refuses a rule with an unknown kind, algorithm or standardizer,
+  a non-positive weight, or a duplicate name. A missing value adds
+  `"missing" => true` to that rule's explanation entry.
 - Every create action on a versioned resource stamps `content_hash` with
   `AshMdm.Changes.SetContentHash`, whose `fields:` option names what the hash
   covers: `field_rules` on a mapping, `rules` and `survivorship` on a rule set.
