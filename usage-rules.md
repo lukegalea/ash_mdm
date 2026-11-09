@@ -62,12 +62,17 @@ natively; the package never assumes an actor model.
   depth a `:human` statement sorts first, so a steward's value beats an older
   import under the default `non_null`; a survivor's value still beats an
   absorbed golden's, even a person's.
+  Give all stewards one `source` and record who said it in `origin_ref`: among
+  people the oldest order still holds, so a user id as the `source` makes the
+  first steward's value outrank every later correction.
   Pass `depths:` from `chain_depths/2` so a survivor outranks what it absorbed.
   Don't rewrite an absorbed golden's assertions on merge: leave them and fold
   through the chain, so an unmerge is correct by construction.
 - The attribute assertion macro ships no read policy and has no foreign key
   to the golden. A host must gate its reads on the golden, or the table
-  discloses what the golden's own policies hide.
+  discloses what the golden's own policies hide. Do it in the read, as a
+  preparation or action filter: Ash does not authorize an `exists` written
+  inside a policy, so that form lets every reader through.
 - `{:completeness_profile, repo: ..., table: ..., tenant?: false}` declares,
   per golden resource and purpose, what each attribute needs and why. It has
   the same draft, validate, activate lifecycle as a mapping, and the same
