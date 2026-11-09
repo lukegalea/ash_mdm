@@ -327,3 +327,26 @@ defmodule AshMdm.Changes.RunResolverValidation do
     end)
   end
 end
+
+defmodule AshMdm.Changes.OrderGoldenPair do
+  @moduledoc """
+  Puts a golden pair in canonical order, `golden_id < other_golden_id`, so
+  (a, b) and (b, a) are the same candidate to the unique index.
+  """
+
+  use Ash.Resource.Change
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    a = Ash.Changeset.get_attribute(changeset, :golden_id)
+    b = Ash.Changeset.get_attribute(changeset, :other_golden_id)
+
+    if is_binary(a) and is_binary(b) and a > b do
+      changeset
+      |> Ash.Changeset.force_change_attribute(:golden_id, b)
+      |> Ash.Changeset.force_change_attribute(:other_golden_id, a)
+    else
+      changeset
+    end
+  end
+end

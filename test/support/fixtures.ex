@@ -130,6 +130,15 @@ defmodule AshMdm.Fixtures.MatchCandidate do
   postgres do
     table "mdm_match_candidates"
     repo(AshMdm.Test.Repo)
+
+    identity_wheres_to_sql(one_golden_pair: "other_golden_id IS NOT NULL")
+
+    check_constraints do
+      check_constraint(:other_golden_id, "exactly_one_pairing",
+        check: "(staged_record_id IS NULL) <> (other_golden_id IS NULL)",
+        message: "exactly one of staged_record_id and other_golden_id must be set"
+      )
+    end
   end
 end
 

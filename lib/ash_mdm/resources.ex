@@ -91,7 +91,10 @@ defmodule AshMdm.Resources do
   ## `:match_candidate`
 
   One row per (staged record, golden record) pair — identity `:one_pair` —
-  with `score`, `explanation`, a host-resolved `band` and a `status`.
+  or per pair of golden records (`:create_golden_pair`, identity
+  `:one_golden_pair`, canonical order `golden_id < other_golden_id`, both in
+  `golden_resource`). Exactly one of `staged_record_id` and `other_golden_id`
+  is set. With `score`, `explanation`, a host-resolved `band` and a `status`.
   The machine `:update` may set `:band` and the machine statuses but refuses
   `:confirmed`/`:rejected`, which are a person's acts on host-defined gated
   actions; `:record_verdict_ref` stamps `human_verdict_ref` afterwards.
@@ -408,8 +411,15 @@ defmodule AshMdm.Resources do
         uuid_primary_key :id
 
         attribute :staged_record_id, :uuid do
-          allow_nil? false
           public? true
+
+          description "Set on a staged-vs-golden candidate; nil on a golden pair. Exactly one of this and `other_golden_id` is set."
+        end
+
+        attribute :other_golden_id, :uuid do
+          public? true
+
+          description "The second golden of a golden pair, in the same golden_resource as `golden_id`; stored so `golden_id < other_golden_id`."
         end
 
         attribute :golden_resource, :string do
@@ -454,6 +464,10 @@ defmodule AshMdm.Resources do
 
       identities do
         identity :one_pair, [:staged_record_id, :golden_resource, :golden_id]
+
+        identity :one_golden_pair, [:golden_resource, :golden_id, :other_golden_id] do
+          where expr(not is_nil(unquote(Macro.var(:other_golden_id, nil))))
+        end
       end
 
       actions do
@@ -463,6 +477,19 @@ defmodule AshMdm.Resources do
 
         create :create do
           accept [:staged_record_id, :golden_resource, :golden_id, :score, :explanation]
+
+          validate AshMdm.Validations.ExactlyOnePairing
+        end
+
+        create :create_golden_pair do
+          description "A candidate pairing two golden records. Stored in canonical order, so (a, b) and (b, a) are one candidate."
+          accept [:golden_resource, :golden_id, :other_golden_id, :score, :explanation]
+
+          validate present(:golden_id)
+          validate present(:other_golden_id)
+          validate AshMdm.Validations.DistinctGoldenPair
+          validate AshMdm.Validations.ExactlyOnePairing, only_when_valid?: true
+          change AshMdm.Changes.OrderGoldenPair
         end
 
         update :update do

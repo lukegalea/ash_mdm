@@ -105,6 +105,19 @@ natively; the package never assumes an actor model.
   `:confirmed` or `:rejected`. Those are a person's acts, on actions the host
   defines and gates. `:record_verdict_ref` only stamps `human_verdict_ref`
   after such a decision has committed.
+- A match candidate pairs a golden with a staged record (`:create`) or with
+  another golden of the same `golden_resource` (`:create_golden_pair`): exactly
+  one of `staged_record_id` and `other_golden_id` is set, enforced by
+  `AshMdm.Validations.ExactlyOnePairing` and by a host check constraint. A
+  golden pair is stored with `golden_id < other_golden_id`, a self-pair is
+  refused, and the reversed pair is the same candidate (identity
+  `:one_golden_pair`; a second create is an identity error). The host owns the
+  DDL: `staged_record_id` nullable, `other_golden_id uuid`, a check
+  `(staged_record_id IS NULL) <> (other_golden_id IS NULL)`, a unique index
+  `<table>_one_golden_pair` on `(golden_resource, golden_id, other_golden_id)
+  WHERE other_golden_id IS NOT NULL`, plus `identity_wheres_to_sql
+  one_golden_pair: "other_golden_id IS NOT NULL"` in its `postgres` block.
+  Staged candidates and `:one_pair` are unchanged.
 - Merging golden records is host code; the package neither merges nor
   deletes rows. The mapping validator skips the CDM merge columns (`merged`,
   `master_id`) along with the other system columns when it checks total

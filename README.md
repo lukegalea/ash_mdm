@@ -20,7 +20,7 @@ use AshMdm.Resources, {:mapping, repo: MyApp.Repo, table: "mdm_mappings", tenant
 |---|---|---|
 | Mappings | `{:mapping, …}` | Versioned schema mappings (ingress + egress); draft → validate → activate; activation supersedes and nothing is overwritten |
 | Match rule sets | `{:match_rule_set, …}` | Deterministic matching as data — exact/fuzzy rules with weights, survivorship declared per attribute, unknown strategies refused at activation |
-| Match candidates | `{:match_candidate, …}` | (staged, golden) pairs with score and per-rule explanation, banded `admit/review/omit` by the host's own band table |
+| Match candidates | `{:match_candidate, …}` | (staged, golden) or (golden, golden) pairs, one canonical row per pair, with score and per-rule explanation, banded `admit/review/omit` by the host's own band table |
 | Completeness profiles | `{:completeness_profile, …}` | Versioned, per purpose: what each attribute of a golden needs and why, with total accounting at activation |
 | Resolvers | `{:resolver, …}` | Versioned declarations of how an attribute can be produced: a closed kind (`human`, `inference`, `judgment`, `evidence`, `enrichment`), what it produces and requires, a cost rank, and a reference the host runs. `AshMdm.Resolution.plan/3` turns gaps into planned, needs-input or no-route, and runs nothing |
 | Attribute gaps | `{:attribute_gap, …}` | A rebuildable row per golden and requirement holding inputs only; `gap_kind` says at read time whether it is missing, expired, stale or from an origin the purpose doesn't accept |
