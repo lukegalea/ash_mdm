@@ -36,12 +36,40 @@ defmodule AshMdm.Validations.ValidSurvivorship do
 
     case unknown do
       [] ->
-        :ok
+        validate_origin_rank(policy)
 
       strategies ->
         {:error,
-         field: :survivorship,
-         message: "unknown survivorship strategies: #{inspect(strategies)}"}
+         field: :survivorship, message: "unknown survivorship strategies: #{inspect(strategies)}"}
     end
+  end
+
+  # `origin_rank` has no default order: which origin outranks which is the
+  # tenant's declared policy, so a strategy naming no order is refused.
+  defp validate_origin_rank(policy) do
+    declared = policy["origin_rank"]
+    known = Enum.map(AshMdm.Assertions.rankable_origin_kinds(), &to_string/1)
+
+    cond do
+      not uses_origin_rank?(policy) and is_nil(declared) ->
+        :ok
+
+      not (is_list(declared) and declared != []) ->
+        {:error,
+         field: :survivorship, message: "the origin_rank strategy needs an origin_rank list"}
+
+      Enum.any?(declared, &(&1 not in known)) ->
+        {:error,
+         field: :survivorship,
+         message: "unknown origin kinds in origin_rank: #{inspect(declared -- known)}"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp uses_origin_rank?(policy) do
+    policy["default"] == "origin_rank" or
+      Enum.any?(Map.values(policy["attributes"] || %{}), &(&1["strategy"] == "origin_rank"))
   end
 end

@@ -22,6 +22,8 @@ defmodule AshMdm.Survivorship do
     * `source_rank`  — earliest source in the policy's `source_rank` list.
       Every record's `source` must be a real source name: one the list does
       not name ranks last, so placeholders tie and the first record wins
+    * `origin_rank`  — earliest origin kind in the policy's `origin_rank`
+      list, for records that carry `origin` (see `AshMdm.Assertions`)
     * `most_complete` — the record with the fewest nil attributes
     * `non_null`     — first non-nil in record order (the default)
     * `steward_override` — the record the steward nominated; recorded as
@@ -31,37 +33,48 @@ defmodule AshMdm.Survivorship do
   observed_at: DateTime.t() | nil, attributes: map()}`.
   """
 
-  @strategies ~w(most_recent source_rank most_complete non_null steward_override)
+  @strategies ~w(most_recent source_rank origin_rank most_complete non_null steward_override)
 
   def strategies, do: @strategies
 
   @spec resolve(map(), [map()]) :: %{merged: map(), provenance: map()}
   def resolve(policy, records) when is_list(records) and records != [] do
+    policy |> resolve_with_winners(records) |> Map.delete(:winners)
+  end
+
+  @doc """
+  `resolve/2`, plus `winners`: the record that won each attribute, for a
+  caller whose provenance needs more than the source name.
+  """
+  @spec resolve_with_winners(map(), [map()]) :: %{
+          merged: map(),
+          provenance: map(),
+          winners: map()
+        }
+  def resolve_with_winners(policy, records) when is_list(records) and records != [] do
     attributes = policy["attributes"] || %{}
     default = policy["default"] || "non_null"
-    source_rank = policy["source_rank"] || []
+    ranks = %{source: policy["source_rank"] || [], origin: policy["origin_rank"] || []}
 
     keys =
       records
       |> Enum.flat_map(&Map.keys(&1.attributes))
       |> Enum.uniq()
 
-    {merged, provenance} =
-      Enum.reduce(keys, {%{}, %{}}, fn key, {m, p} ->
-        strategy = get_strategy(attributes, key, default)
-        winner = pick(key, strategy, source_rank, records)
+    Enum.reduce(keys, %{merged: %{}, provenance: %{}, winners: %{}}, fn key, acc ->
+      strategy = get_strategy(attributes, key, default)
 
-        case winner do
-          nil ->
-            {m, Map.put(p, key, %{"strategy" => strategy, "source" => nil})}
+      case pick(key, strategy, ranks, records) do
+        nil ->
+          put_in(acc, [:provenance, key], %{"strategy" => strategy, "source" => nil})
 
-          rec ->
-            {Map.put(m, key, rec.attributes[key]),
-             Map.put(p, key, %{"source" => rec.source, "strategy" => strategy})}
-        end
-      end)
-
-    %{merged: merged, provenance: provenance}
+        rec ->
+          acc
+          |> put_in([:merged, key], rec.attributes[key])
+          |> put_in([:provenance, key], %{"source" => rec.source, "strategy" => strategy})
+          |> put_in([:winners, key], rec)
+      end
+    end)
   end
 
   defp get_strategy(attributes, key, default) do
@@ -75,16 +88,20 @@ defmodule AshMdm.Survivorship do
   # picks among them. None compete → the attribute stays absent and the
   # provenance records the miss ("no source had a value"), distinguishable
   # from "attribute not considered".
-  defp pick(key, strategy, source_rank, records) do
+  defp pick(key, strategy, ranks, records) do
     competing = Enum.filter(records, &(not is_nil(rec_get(records, &1, key))))
 
     case strategy do
       "most_recent" ->
         competing
-        |> Enum.max_by(&(observed_unix(&1, records)), fn -> nil end)
+        |> Enum.max_by(&observed_unix(&1, records), fn -> nil end)
 
       "source_rank" ->
-        competing |> Enum.min_by(&rank_of(&1.source, source_rank), fn -> nil end)
+        competing |> Enum.min_by(&rank_of(&1.source, ranks.source), fn -> nil end)
+
+      "origin_rank" ->
+        competing
+        |> Enum.min_by(&rank_of(to_string(Map.get(&1, :origin)), ranks.origin), fn -> nil end)
 
       "most_complete" ->
         competing |> Enum.max_by(&completeness/1, fn -> nil end)
@@ -103,7 +120,7 @@ defmodule AshMdm.Survivorship do
   defp rec_get(_records, rec, key), do: rec.attributes[key]
 
   defp observed_unix(rec, _records),
-    do: rec.observed_at && DateTime.to_unix(rec.observed_at) || 0
+    do: (rec.observed_at && DateTime.to_unix(rec.observed_at)) || 0
 
   defp rank_of(source, source_rank) do
     case Enum.find_index(source_rank, &(&1 == source)) do

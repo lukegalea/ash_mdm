@@ -4,7 +4,7 @@
 them on its own platform base — host policies, tenancy and audit govern
 natively; the package never assumes an actor model.
 
-- Three macros, each used inside the host's own `use Ash.Resource` module:
+- Four macros, each used inside the host's own `use Ash.Resource` module:
   `use AshMdm.Resources, {:mapping, repo: ..., table: ..., tenant?: false}`,
   `{:match_rule_set, repo: ..., table: ...}` and `{:match_candidate, opts}`.
   `:mapping` and `:match_rule_set` own their `postgres` block (`:repo` and
@@ -27,6 +27,23 @@ natively; the package never assumes an actor model.
   a real source per candidate: a host folding golden records with no per-field
   source lineage cannot supply one and should refuse the merge, not pass
   placeholder source names (they tie, and the first record wins silently).
+- Survivorship also has `origin_rank`, which ranks by where a statement came
+  from. It has no default order: `:activate` refuses it without an
+  `origin_rank` list of kinds from `AshMdm.Assertions.rankable_origin_kinds/0`.
+- `{:attribute_assertion, repo: ..., table: ..., tenant?: false,
+  sensitive_value?: false}` is one append-only row per statement that an
+  attribute of a golden has a value, with its origin. Write with `:assert`;
+  there is no update. Correct by asserting again, and withdraw with
+  `origin_kind: :retraction` and `retracts_id`. Identical content is one row,
+  so a retried job is safe. `:erase` exists only for a host's erasure path.
+- `AshMdm.Assertions.fold/3` is the fold over those rows. Band `:review` or
+  `:omit`, retracted and blank statements do not compete; expired ones do.
+  Pass `depths:` from `chain_depths/2` so a survivor outranks what it absorbed.
+  Don't rewrite an absorbed golden's assertions on merge: leave them and fold
+  through the chain, so an unmerge is correct by construction.
+- The attribute assertion macro ships no read policy and has no foreign key
+  to the golden. A host must gate its reads on the golden, or the table
+  discloses what the golden's own policies hide.
 - Every create action on a versioned resource stamps `content_hash` with
   `AshMdm.Changes.SetContentHash`, whose `fields:` option names what the hash
   covers: `field_rules` on a mapping, `rules` and `survivorship` on a rule set.
