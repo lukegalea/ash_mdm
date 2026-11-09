@@ -46,7 +46,21 @@ defmodule AshMdm.Resources do
     * `:tenant?` — pass `true` when the host's base supplies
       `organization_id`; it joins the lookup index.
     * `:sensitive_value?` — pass `true` when the golden's attributes are
-      sensitive, such as a person's name and email.
+      sensitive, such as a person's name and email. Requires `:digest_secret`.
+    * `:digest_secret` — `{Module, :function, args}` returning a binary, the
+      key `content_digest` is an HMAC-SHA256 under. An unsalted hash of a
+      low-entropy value such as a government identifier can be brute-forced,
+      so it is required when `:sensitive_value?` is `true` (absent, the macro
+      raises `ArgumentError` at compile time) and ignored otherwise.
+
+  `:tenant?` needs real Ash multitenancy behind it, not only the column,
+  because the digest identity is otherwise global: two tenants' identical
+  statements would be one row.
+
+  `:erase` must be a real delete. On a base with AshArchival it becomes a soft
+  delete and the plaintext stays, so such a resource must opt out of
+  archival. A retraction must be written on the same golden as its target,
+  or an unmerge will undo it.
 
   The macro ships no read policy. A host whose goldens are not visible to
   everyone must gate reads on the golden itself, or this table discloses
@@ -81,12 +95,15 @@ defmodule AshMdm.Resources do
   One row per version of the match rules for a golden resource: `rules`
   (scored by `AshMdm.Match`) and a `survivorship` policy (folded by
   `AshMdm.Survivorship`). `:draft` -> `:activate` -> `:retire`; activation
-  retires the previously active set for the same `golden_resource` and
-  refuses unknown survivorship strategies
-  (`AshMdm.Validations.ValidSurvivorship`). `:draft` stamps `content_hash`
-  over `rules` and `survivorship`. Options:
+  retires the previously active set for the same `golden_resource` (within
+  `organization_id` when the host's base supplies it) and refuses unknown
+  survivorship strategies (`AshMdm.Validations.ValidSurvivorship`). `:draft`
+  stamps `content_hash` over `rules` and `survivorship`. Options:
 
-    * `:repo`, `:table` — required; the macro owns the `postgres` block.
+    * `:repo`, `:table` — required; the macro owns the `postgres` block,
+      including the **one-active** partial unique index on `golden_resource`.
+    * `:tenant?` — pass `true` when the host's base supplies
+      `organization_id`. It joins the one-active index.
 
   ## `:match_candidate`
 
@@ -298,9 +315,17 @@ defmodule AshMdm.Resources do
   end
 
   defmacro __using__({:match_rule_set, opts}) do
-    opts = Keyword.validate!(opts, [:repo, :table])
+    opts = Keyword.validate!(opts, [:repo, :table, tenant?: false])
     repo = Keyword.fetch!(opts, :repo)
     table = Keyword.fetch!(opts, :table)
+    tenant? = Keyword.fetch!(opts, :tenant?)
+
+    index_cols =
+      if tenant?,
+        do: [:organization_id, :golden_resource],
+        else: [:golden_resource]
+
+    index_name = "#{table}_one_active"
 
     quote location: :keep do
       attributes do
@@ -388,7 +413,7 @@ defmodule AshMdm.Resources do
           # merge with the default.
           validate AshMdm.Validations.ValidSurvivorship
           validate AshMdm.Validations.ValidMatchRules
-          change AshMdm.Changes.ActivateRuleSet
+          change {AshMdm.Changes.Activate, identity: [:golden_resource], from: :draft}
         end
 
         update :retire do
@@ -401,6 +426,14 @@ defmodule AshMdm.Resources do
       postgres do
         repo(unquote(repo))
         table unquote(table)
+
+        custom_indexes do
+          index(unquote(Macro.escape(index_cols)),
+            unique: true,
+            where: "status = 'active'",
+            name: unquote(index_name)
+          )
+        end
       end
     end
   end
@@ -511,11 +544,20 @@ defmodule AshMdm.Resources do
   end
 
   defmacro __using__({:attribute_assertion, opts}) do
-    opts = Keyword.validate!(opts, [:repo, :table, tenant?: false, sensitive_value?: false])
+    opts =
+      Keyword.validate!(opts, [
+        :repo,
+        :table,
+        :digest_secret,
+        tenant?: false,
+        sensitive_value?: false
+      ])
+
     repo = Keyword.fetch!(opts, :repo)
     table = Keyword.fetch!(opts, :table)
     tenant? = Keyword.fetch!(opts, :tenant?)
     sensitive_value? = Keyword.fetch!(opts, :sensitive_value?)
+    digest_secret = digest_secret!(sensitive_value?, opts[:digest_secret])
     origin_kinds = AshMdm.Assertions.origin_kinds()
 
     index_cols =
@@ -606,6 +648,7 @@ defmodule AshMdm.Resources do
         attribute :content_digest, :string do
           allow_nil? false
           public? false
+          sensitive? unquote(sensitive_value?)
           description "Identity of the statement's content, so a retried write is a no-op."
         end
 
@@ -651,7 +694,7 @@ defmodule AshMdm.Resources do
           upsert_fields []
 
           validate AshMdm.Validations.ValidAssertion
-          change AshMdm.Changes.SealAssertion
+          change {AshMdm.Changes.SealAssertion, digest_secret: unquote(digest_secret)}
         end
 
         destroy :erase do
@@ -1131,5 +1174,17 @@ defmodule AshMdm.Resources do
 
   defmacro __using__(other) do
     raise ArgumentError, "AshMdm.Resources: unknown resource #{inspect(other)}"
+  end
+
+  defp digest_secret!(false, _secret), do: nil
+
+  defp digest_secret!(_sensitive?, {:{}, _meta, [_module, function, args]} = secret)
+       when is_atom(function) and is_list(args),
+       do: secret
+
+  defp digest_secret!(_sensitive?, _other) do
+    raise ArgumentError,
+          "AshMdm.Resources: sensitive_value?: true requires digest_secret: " <>
+            "{Module, :function, args}, returning a binary secret that keys the content digest"
   end
 end

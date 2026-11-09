@@ -28,7 +28,8 @@ defmodule AshMdm.Match do
 
   Missing values on either side contribute 0 and the rule's entry gains
   `"missing" => true`, so a calibration can tell "no data" from "disagreed".
-  Absence is never evidence of a match.
+  Absence is never evidence of a match, and a blank or whitespace-only value,
+  including one a standardizer has emptied, is absence.
   """
   @spec score([map()], map(), map()) :: {Decimal.t(), map()}
   def score(rules, staged_map, golden_map) when is_list(rules) do
@@ -95,7 +96,11 @@ defmodule AshMdm.Match do
     |> String.trim()
     |> String.downcase()
     |> AshMdm.Standardize.run(rule["standardize"] || [])
+    |> blank_to_nil()
   end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(value), do: if(String.trim(value) == "", do: nil, else: value)
 
   defp similarity(s, g, "jaro"), do: s |> String.jaro_distance(g) |> Decimal.from_float()
 

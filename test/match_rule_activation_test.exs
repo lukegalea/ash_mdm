@@ -59,6 +59,82 @@ defmodule AshMdm.MatchRuleActivationTest do
     end
   end
 
+  describe "activation on a global-tenancy host" do
+    alias AshMdm.Fixtures.TenantMatchRuleSet
+
+    @golden "AshMdm.Fixtures.Person"
+
+    defp tenant_draft!(tenant) do
+      TenantMatchRuleSet
+      |> Ash.Changeset.for_create(
+        :draft,
+        %{golden_resource: @golden, rules: [@exact], survivorship: %{}},
+        tenant: tenant
+      )
+      |> Ash.create!(authorize?: false)
+    end
+
+    defp activate_with_no_tenant!(id) do
+      TenantMatchRuleSet
+      |> Ash.get!(id, authorize?: false)
+      |> Ash.Changeset.for_update(:activate)
+      |> Ash.update!(authorize?: false)
+    end
+
+    defp status_of(id), do: Ash.get!(TenantMatchRuleSet, id, authorize?: false).status
+
+    test "leaves another tenant's active set alone" do
+      theirs = tenant_draft!(Ecto.UUID.generate())
+      ours = tenant_draft!(Ecto.UUID.generate())
+
+      activate_with_no_tenant!(theirs.id)
+      activate_with_no_tenant!(ours.id)
+
+      assert status_of(theirs.id) == :active
+      assert status_of(ours.id) == :active
+    end
+
+    test "still retires the same tenant's earlier set" do
+      org = Ecto.UUID.generate()
+      earlier = tenant_draft!(org)
+      later = tenant_draft!(org)
+
+      activate_with_no_tenant!(earlier.id)
+      activate_with_no_tenant!(later.id)
+
+      assert status_of(earlier.id) == :retired
+      assert status_of(later.id) == :active
+    end
+  end
+
+  describe "the one-active index" do
+    defp insert_active(golden_resource) do
+      Ecto.Adapters.SQL.query(
+        AshMdm.Test.Repo,
+        """
+        INSERT INTO mdm_match_rule_sets
+          (id, golden_resource, rules, status, inserted_at, updated_at)
+        VALUES (gen_random_uuid(), $1, '[]', 'active', now(), now())
+        """,
+        [golden_resource]
+      )
+    end
+
+    test "the database refuses two active sets for one golden resource" do
+      golden = "golden-#{System.unique_integer([:positive])}"
+
+      assert {:ok, _} = insert_active(golden)
+
+      assert {:error, %Postgrex.Error{postgres: %{code: :unique_violation}}} =
+               insert_active(golden)
+    end
+
+    test "another golden resource is free" do
+      assert {:ok, _} = insert_active("golden-#{System.unique_integer([:positive])}")
+      assert {:ok, _} = insert_active("golden-#{System.unique_integer([:positive])}")
+    end
+  end
+
   test "refuses two rules with one name" do
     assert {:error, _} = activate([@exact, %{@fuzzy | "name" => "e"}])
   end

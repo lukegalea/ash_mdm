@@ -16,9 +16,21 @@ defmodule AshMdm.Mapping.ContentHash do
 
   @spec hash!(term()) :: String.t()
   def hash!(field_rules) do
-    :crypto.hash(:sha256, Jason.encode!(canonicalize(field_rules)))
+    :crypto.hash(:sha256, canonical_json(field_rules))
     |> Base.encode16(case: :lower)
   end
+
+  @doc """
+  HMAC-SHA256 over the same canonical JSON, keyed by `secret`, for content
+  whose values are low-entropy enough that an unkeyed hash can be brute-forced.
+  """
+  @spec hmac!(term(), binary()) :: String.t()
+  def hmac!(content, secret) when is_binary(secret) do
+    :crypto.mac(:hmac, :sha256, secret, canonical_json(content))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical_json(content), do: Jason.encode!(canonicalize(content))
 
   defp canonicalize(%_{} = struct), do: struct
 

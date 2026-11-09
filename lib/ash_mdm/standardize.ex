@@ -8,7 +8,9 @@ defmodule AshMdm.Standardize do
   lowercased, trimmed string and returns a string or nil, and they run in the
   order the rule lists them.
 
-    * `unaccent` removes combining marks, so `Société` compares as `Societe`.
+    * `unaccent` removes combining marks after a Latin base letter, so
+      `Société` compares as `Societe`. Marks on other scripts are kept, since
+      Devanagari, Thai and Japanese marks distinguish words.
     * `legal_suffix` removes trailing legal forms, so `Acme, Inc.` compares
       as `Acme`. Two different companies can share a stem, so a rule using
       this belongs in the review band rather than deciding a merge alone.
@@ -46,7 +48,6 @@ defmodule AshMdm.Standardize do
     ~w(pty),
     ~w(ulc),
     ~w(srl),
-    ~w(spa),
     ~w(ag),
     ~w(bv),
     ~w(co),
@@ -70,11 +71,14 @@ defmodule AshMdm.Standardize do
   end
 
   defp standardize("unaccent", value) do
-    value |> String.normalize(:nfd) |> String.replace(~r/\p{Mn}/u, "")
+    value
+    |> String.normalize(:nfd)
+    |> String.replace(~r/(\p{Latin})\p{Mn}+/u, "\\1")
+    |> String.normalize(:nfc)
   end
 
   defp standardize("legal_suffix", value) do
-    tokens = value |> String.split() |> Enum.map(&clean_token/1)
+    tokens = value |> String.split(~r/\s+/u, trim: true) |> Enum.map(&clean_token/1)
 
     case strip_suffixes(Enum.reverse(tokens)) do
       [] -> value

@@ -30,12 +30,20 @@ defmodule AshMdm.Completeness do
 
   Kinds, worst first: `:missing`, `:origin_not_accepted`, `:expired`,
   `:stale`, and `:satisfied`.
+
+  A requirement is judged against every competing statement holding the
+  standing value, not only the fold's winner, and the best outcome stands; a
+  tie goes to the newest statement, and the assessment names that statement.
+  So a value later confirmed by an accepted origin, or by fresher evidence, is
+  no longer a gap. A different value from an accepted origin changes nothing:
+  it is not the standing value.
   """
 
   alias AshMdm.Assertions
 
   @needs ~w(required optional out_of_scope)
   @kinds [:missing, :origin_not_accepted, :expired, :stale, :satisfied]
+  @best_first Enum.reverse(@kinds)
 
   @doc "The closed vocabulary of what a requirement can need."
   def needs, do: @needs
@@ -57,11 +65,11 @@ defmodule AshMdm.Completeness do
     |> Enum.filter(&(&1["need"] == "required"))
     |> Enum.map(fn requirement ->
       attribute = requirement["attribute"]
-      statement = Map.get(standing.statements, attribute)
+      {kind, statement} = judge(requirement, Map.get(standing.supporting, attribute, []), now)
 
       %{
         attribute: attribute,
-        kind: kind(requirement, statement, now),
+        kind: kind,
         because: requirement["because"],
         material: requirement["material"] == true,
         max_age_days: requirement["max_age_days"],
@@ -82,7 +90,15 @@ defmodule AshMdm.Completeness do
     requirements |> assess(assertions, opts) |> Enum.reject(&(&1.kind == :satisfied))
   end
 
-  defp kind(_requirement, nil, _now), do: :missing
+  defp judge(_requirement, [], _now), do: {:missing, nil}
+
+  # Supporting statements are newest first and `min_by` keeps the first of a
+  # tie, so equal outcomes go to the newest.
+  defp judge(requirement, supporting, now) do
+    supporting
+    |> Enum.map(&{kind(requirement, &1, now), &1})
+    |> Enum.min_by(fn {kind, _statement} -> Enum.find_index(@best_first, &(&1 == kind)) end)
+  end
 
   defp kind(requirement, statement, now) do
     cond do

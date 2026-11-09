@@ -27,6 +27,14 @@ defmodule AshMdm.Tuning do
   A rule that agrees on non-matches as often as on matches earns a weight at
   or below zero. Scoring needs a positive weight, so it is floored at 0.01
   and reported `:floored`, which is a person's cue to look at that rule.
+
+  When some rules are `:insufficient_labels` and others are tuned, the two
+  sets would be on different scales, so the tuned rules are rescaled to keep
+  the combined weight share they had before (the sum of their prior weights,
+  a missing prior counting as 1.0, over the sum of their new weights), and the
+  floor applies afterwards. When every rule is tuned nothing is rescaled.
+  Each report entry says which happened: `rescaled` and `scale`, the factor
+  applied or nil.
   """
 
   @agreement Decimal.new("0.85")
@@ -39,7 +47,8 @@ defmodule AshMdm.Tuning do
   Takes the current rules and judged pairs, and returns
   `%{rules: [...], report: [...]}` in rule order. Verdicts other than
   `:match` and `:non_match` are ignored. A report entry's `status` is
-  `:proposed`, `:floored` or `:insufficient_labels`.
+  `:proposed`, `:floored` or `:insufficient_labels`, and `rescaled` and
+  `scale` say whether its weight was rescaled against rules that kept theirs.
   """
   @spec propose([map()], [labelled()]) :: %{rules: [map()], report: [map()]}
   def propose(rules, labelled) when is_list(rules) and is_list(labelled) do
@@ -51,6 +60,7 @@ defmodule AshMdm.Tuning do
     {proposed, report} =
       rules
       |> Enum.map(&tune(&1, tally(&1, matches), tally(&1, non_matches)))
+      |> rescale()
       |> Enum.unzip()
 
     %{rules: proposed, report: report}
@@ -91,6 +101,39 @@ defmodule AshMdm.Tuning do
     {Map.put(rule, "weight", weight), entry(rule, status, weight, m, u)}
   end
 
+  defp rescale(results) do
+    {kept, tuned} = Enum.split_with(results, &insufficient?/1)
+
+    if kept == [] or tuned == [],
+      do: results,
+      else: Enum.map(results, &rescaled(&1, scale_of(tuned)))
+  end
+
+  defp insufficient?({_rule, entry}), do: entry.status == :insufficient_labels
+
+  defp scale_of(tuned) do
+    prior =
+      tuned |> Enum.map(fn {_, entry} -> prior_weight(entry.weight_before) end) |> Enum.sum()
+
+    new = tuned |> Enum.map(fn {_, entry} -> entry.weight_after end) |> Enum.sum()
+
+    prior / new
+  end
+
+  defp prior_weight(weight) when is_number(weight) and weight > 0, do: weight * 1.0
+  defp prior_weight(_missing), do: 1.0
+
+  defp rescaled({_rule, %{status: :insufficient_labels}} = kept, _scale), do: kept
+
+  defp rescaled({rule, entry}, scale) do
+    scaled = entry.weight_after * scale
+    weight = max(scaled, @floor) |> Float.round(4)
+    status = if(scaled < @floor, do: :floored, else: entry.status)
+
+    {Map.put(rule, "weight", weight),
+     %{entry | status: status, weight_after: weight, rescaled: true, scale: scale}}
+  end
+
   defp rate({agreed, observed}), do: (agreed + 0.5) / (observed + 1)
 
   defp entry(rule, status, weight_after, {_, matches} = m, {_, non_matches} = u) do
@@ -102,7 +145,9 @@ defmodule AshMdm.Tuning do
       m: Float.round(rate(m), 4),
       u: Float.round(rate(u), 4),
       matches: matches,
-      non_matches: non_matches
+      non_matches: non_matches,
+      rescaled: false,
+      scale: nil
     }
   end
 end
