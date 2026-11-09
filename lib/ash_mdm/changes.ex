@@ -276,3 +276,31 @@ defmodule AshMdm.Changes.RunCompletenessValidation do
     end)
   end
 end
+
+defmodule AshMdm.Changes.RunResolverValidation do
+  @moduledoc """
+  Runs `AshMdm.Resolution.Validator.findings/1`: draft -> validated only when
+  there are no errors, otherwise the resolver stays a draft with its findings.
+  """
+
+  use Ash.Resource.Change
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      findings =
+        AshMdm.Resolution.Validator.findings(
+          Map.new(
+            ~w(golden_resource kind produces requires cost_rank reference)a,
+            &{&1, Ash.Changeset.get_attribute(changeset, &1)}
+          )
+        )
+
+      status = if(findings.errors == [], do: :validated, else: :draft)
+
+      changeset
+      |> Ash.Changeset.force_change_attribute(:validation_findings, findings)
+      |> Ash.Changeset.force_change_attribute(:status, status)
+    end)
+  end
+end

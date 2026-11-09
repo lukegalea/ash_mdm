@@ -59,6 +59,16 @@ defmodule AshMdm.Resources do
   `:repo`, `:table` and `:tenant?` as `:mapping` does, for the same
   **one-active** index.
 
+  ## `:resolver`
+
+  One row per (golden resource, name) **version**: a declared way to produce
+  attributes of a golden. `kind` is one of `AshMdm.Resolution.kinds/0`;
+  `produces` and `requires` name attributes of the golden; `cost_rank` orders
+  resolvers (lower first); `reference` is a non-empty map saying what actually
+  runs it, which the host interprets. See `AshMdm.Resolution`. Takes `:repo`,
+  `:table` and `:tenant?` as `:mapping` does, for the same **one-active**
+  index. The package never runs a resolver.
+
   ## `:attribute_gap`
 
   One rebuildable row per (golden, profile, attribute) holding the inputs of
@@ -745,6 +755,181 @@ defmodule AshMdm.Resources do
           validate attribute_equals(:status, :validated)
           require_atomic? false
           change {AshMdm.Changes.Activate, identity: [:golden_resource, :purpose]}
+        end
+
+        update :retire do
+          accept []
+          validate attribute_equals(:status, :active)
+          change set_attribute(:status, :retired)
+        end
+      end
+
+      postgres do
+        repo(unquote(repo))
+        table unquote(table)
+
+        custom_indexes do
+          index(unquote(Macro.escape(index_cols)),
+            unique: true,
+            where: "status = 'active'",
+            name: unquote(index_name)
+          )
+        end
+      end
+    end
+  end
+
+  defmacro __using__({:resolver, opts}) do
+    opts = Keyword.validate!(opts, [:repo, :table, tenant?: false])
+    repo = Keyword.fetch!(opts, :repo)
+    table = Keyword.fetch!(opts, :table)
+    tenant? = Keyword.fetch!(opts, :tenant?)
+
+    index_cols =
+      if tenant?,
+        do: [:organization_id, :golden_resource, :name],
+        else: [:golden_resource, :name]
+
+    index_name = "#{table}_one_active"
+
+    quote location: :keep do
+      attributes do
+        uuid_primary_key :id
+
+        attribute :golden_resource, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 256
+        end
+
+        attribute :name, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 128, min_length: 1
+        end
+
+        attribute :kind, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 32
+          description "One of AshMdm.Resolution.kinds/0; checked by the validator."
+        end
+
+        attribute :produces, {:array, :string} do
+          allow_nil? false
+          public? true
+          description "Attribute names of the golden this resolver can supply."
+        end
+
+        attribute :requires, {:array, :string} do
+          allow_nil? false
+          public? true
+          default []
+          description "Attribute names that must be held, or produced earlier, first."
+        end
+
+        attribute :cost_rank, :integer do
+          allow_nil? false
+          public? true
+          description "Positive; lower is tried first."
+        end
+
+        attribute :reference, :map do
+          allow_nil? false
+          public? true
+          description "What actually runs this resolver. The host's vocabulary."
+        end
+
+        attribute :status, :atom do
+          allow_nil? false
+          public? true
+          default :draft
+          constraints one_of: [:draft, :validated, :active, :retired]
+        end
+
+        attribute :version, :integer do
+          allow_nil? false
+          public? true
+          default 1
+        end
+
+        attribute :root_id, :uuid do
+          public? true
+        end
+
+        attribute :supersedes_id, :uuid do
+          public? true
+        end
+
+        attribute :content_hash, :string do
+          public? true
+        end
+
+        attribute :validation_findings, :map do
+          public? true
+        end
+
+        attribute :activation_note, :string do
+          public? true
+        end
+
+        create_timestamp :inserted_at
+        update_timestamp :updated_at
+      end
+
+      actions do
+        read :read do
+          primary? true
+        end
+
+        create :draft do
+          accept [
+            :golden_resource,
+            :name,
+            :kind,
+            :produces,
+            :requires,
+            :cost_rank,
+            :reference,
+            :activation_note
+          ]
+
+          change {AshMdm.Changes.SetContentHash,
+                  fields: [:kind, :produces, :requires, :cost_rank, :reference]}
+
+          change AshMdm.Changes.OpenVersionChain
+        end
+
+        create :create_version do
+          description "A successor of an existing version. The predecessor is untouched."
+
+          argument :from_resolver_id, :uuid do
+            allow_nil? false
+          end
+
+          accept [:kind, :produces, :requires, :cost_rank, :reference, :activation_note]
+
+          change {AshMdm.Changes.SetContentHash,
+                  fields: [:kind, :produces, :requires, :cost_rank, :reference]}
+
+          change {AshMdm.Changes.LinkVersionChain,
+                  argument: :from_resolver_id, inherit: [:golden_resource, :name]}
+        end
+
+        update :validate do
+          description "Runs the validator; draft -> validated only when there are no errors."
+          accept []
+          validate attribute_equals(:status, :draft)
+          require_atomic? false
+          change AshMdm.Changes.RunResolverValidation
+        end
+
+        update :activate do
+          description "Person-gated at the host; validated -> active, retiring the predecessor."
+          accept [:activation_note]
+          validate attribute_equals(:status, :validated)
+          require_atomic? false
+          change {AshMdm.Changes.Activate, identity: [:golden_resource, :name]}
         end
 
         update :retire do

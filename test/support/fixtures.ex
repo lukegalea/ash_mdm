@@ -18,6 +18,7 @@ defmodule AshMdm.Fixtures do
     resource AshMdm.Fixtures.AttributeAssertion
     resource AshMdm.Fixtures.CompletenessProfile
     resource AshMdm.Fixtures.AttributeGap
+    resource AshMdm.Fixtures.Resolver
   end
 end
 
@@ -129,4 +130,14 @@ defmodule AshMdm.Fixtures.MatchCandidate do
     table "mdm_match_candidates"
     repo(AshMdm.Test.Repo)
   end
+end
+
+defmodule AshMdm.Fixtures.Resolver do
+  @moduledoc "The macro-generated Resolver on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources, {:resolver, repo: AshMdm.Test.Repo, table: "mdm_resolvers"}
 end
