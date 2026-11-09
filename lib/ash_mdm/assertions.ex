@@ -17,8 +17,13 @@ defmodule AshMdm.Assertions do
     3. id, so the order is total.
 
   So under the default policy the value a golden already holds keeps winning
-  over one that arrives later, and a survivor's value wins over an absorbed
-  record's.
+  over what another source says later, and a survivor's value wins over an
+  absorbed record's.
+
+  A source speaks for itself once: on each golden and attribute, only the
+  newest statement from one origin kind and source competes. That is what
+  makes a correction work, and a refreshed import. Retracting the newest
+  statement brings back the one before it.
 
   Statements that do not compete:
 
@@ -77,7 +82,11 @@ defmodule AshMdm.Assertions do
   def standing(policy, assertions, opts \\ []) when is_map(policy) and is_list(assertions) do
     depths = Keyword.get(opts, :depths, %{})
 
-    case assertions |> competing() |> Enum.sort_by(&order_key(&1, depths)) |> records() do
+    case assertions
+         |> competing()
+         |> latest_per_source()
+         |> Enum.sort_by(&order_key(&1, depths))
+         |> records() do
       [] ->
         %{merged: %{}, provenance: %{}, statements: %{}}
 
@@ -138,6 +147,16 @@ defmodule AshMdm.Assertions do
         Map.get(assertion, :band) in [nil, :admit] and
         not blank?(unwrap_value(assertion.value))
     end)
+  end
+
+  defp latest_per_source(assertions) do
+    assertions
+    |> Enum.group_by(&{Map.get(&1, :golden_id), &1.attribute, &1.origin_kind, &1.source})
+    |> Enum.map(fn {_speaker, statements} -> Enum.max_by(statements, &recency/1) end)
+  end
+
+  defp recency(assertion) do
+    {DateTime.to_unix(assertion.observed_at, :microsecond), to_string(Map.get(assertion, :id))}
   end
 
   defp retracted_ids(assertions) do
