@@ -52,6 +52,20 @@ defmodule AshMdm.Resources do
   everyone must gate reads on the golden itself, or this table discloses
   what the golden's own policies hide.
 
+  ## `:completeness_profile`
+
+  One row per (golden resource, purpose) **version**: which attributes a
+  golden needs for that purpose and why. See `AshMdm.Completeness`. Takes
+  `:repo`, `:table` and `:tenant?` as `:mapping` does, for the same
+  **one-active** index.
+
+  ## `:attribute_gap`
+
+  One rebuildable row per (golden, profile, attribute) holding the inputs of
+  a completeness assessment: never a value. Its `gap_kind` calculation says,
+  at read time, whether the requirement is met. Takes `:repo`, `:table` and
+  `:tenant?`. Like assertions, it ships no read policy.
+
   ## `:match_rule_set`
 
   One row per version of the match rules for a golden resource: `rules`
@@ -590,6 +604,290 @@ defmodule AshMdm.Resources do
 
         destroy :erase do
           description "Removes a statement for a host's erasure path. Never part of ordinary stewardship."
+        end
+      end
+
+      postgres do
+        repo(unquote(repo))
+        table unquote(table)
+
+        custom_indexes do
+          index(unquote(Macro.escape(index_cols)), name: unquote(index_name))
+        end
+      end
+    end
+  end
+
+  defmacro __using__({:completeness_profile, opts}) do
+    opts = Keyword.validate!(opts, [:repo, :table, tenant?: false])
+    repo = Keyword.fetch!(opts, :repo)
+    table = Keyword.fetch!(opts, :table)
+    tenant? = Keyword.fetch!(opts, :tenant?)
+
+    index_cols =
+      if tenant?,
+        do: [:organization_id, :golden_resource, :purpose],
+        else: [:golden_resource, :purpose]
+
+    index_name = "#{table}_one_active"
+
+    quote location: :keep do
+      attributes do
+        uuid_primary_key :id
+
+        attribute :golden_resource, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 256
+        end
+
+        attribute :purpose, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 64
+          description "What the golden is complete for. A host's own vocabulary."
+        end
+
+        attribute :requirements, {:array, :map} do
+          allow_nil? false
+          public? true
+          description "One string-keyed entry per attribute; see AshMdm.Completeness."
+        end
+
+        attribute :status, :atom do
+          allow_nil? false
+          public? true
+          default :draft
+          constraints one_of: [:draft, :validated, :active, :retired]
+        end
+
+        attribute :version, :integer do
+          allow_nil? false
+          public? true
+          default 1
+        end
+
+        attribute :root_id, :uuid do
+          public? true
+        end
+
+        attribute :supersedes_id, :uuid do
+          public? true
+        end
+
+        attribute :content_hash, :string do
+          public? true
+        end
+
+        attribute :validation_findings, :map do
+          public? true
+        end
+
+        attribute :activation_note, :string do
+          public? true
+        end
+
+        create_timestamp :inserted_at
+        update_timestamp :updated_at
+      end
+
+      actions do
+        read :read do
+          primary? true
+        end
+
+        create :draft do
+          accept [:golden_resource, :purpose, :requirements, :activation_note]
+          change {AshMdm.Changes.SetContentHash, fields: [:requirements]}
+          change AshMdm.Changes.OpenVersionChain
+        end
+
+        create :create_version do
+          description "A successor of an existing version. The predecessor is untouched."
+
+          argument :from_profile_id, :uuid do
+            allow_nil? false
+          end
+
+          accept [:requirements, :activation_note]
+          change {AshMdm.Changes.SetContentHash, fields: [:requirements]}
+
+          change {AshMdm.Changes.LinkVersionChain,
+                  argument: :from_profile_id, inherit: [:golden_resource, :purpose]}
+        end
+
+        update :validate do
+          description "Runs the validator; draft -> validated only when there are no errors."
+          accept []
+          validate attribute_equals(:status, :draft)
+          require_atomic? false
+          change AshMdm.Changes.RunCompletenessValidation
+        end
+
+        update :activate do
+          description "Person-gated at the host; validated -> active, retiring the predecessor."
+          accept [:activation_note]
+          validate attribute_equals(:status, :validated)
+          require_atomic? false
+          change {AshMdm.Changes.Activate, identity: [:golden_resource, :purpose]}
+        end
+
+        update :retire do
+          accept []
+          validate attribute_equals(:status, :active)
+          change set_attribute(:status, :retired)
+        end
+      end
+
+      postgres do
+        repo(unquote(repo))
+        table unquote(table)
+
+        custom_indexes do
+          index(unquote(Macro.escape(index_cols)),
+            unique: true,
+            where: "status = 'active'",
+            name: unquote(index_name)
+          )
+        end
+      end
+    end
+  end
+
+  defmacro __using__({:attribute_gap, opts}) do
+    opts = Keyword.validate!(opts, [:repo, :table, tenant?: false])
+    repo = Keyword.fetch!(opts, :repo)
+    table = Keyword.fetch!(opts, :table)
+    tenant? = Keyword.fetch!(opts, :tenant?)
+    gap_kinds = AshMdm.Completeness.kinds()
+
+    index_cols =
+      if tenant?,
+        do: [:organization_id, :golden_resource, :golden_id],
+        else: [:golden_resource, :golden_id]
+
+    index_name = "#{table}_of_golden"
+    input = ~w(max_age_days accepted_origins has_value standing_origin observed_at valid_until)a
+
+    written =
+      input ++ [:assertion_id, :pending_count, :because, :material, :profile_version, :purpose]
+
+    quote location: :keep do
+      attributes do
+        uuid_primary_key :id
+
+        attribute :golden_resource, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 256
+        end
+
+        attribute :golden_id, :uuid do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :profile_id, :uuid do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :profile_version, :integer do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :purpose, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 64
+        end
+
+        attribute :attribute, :string do
+          allow_nil? false
+          public? true
+          constraints max_length: 128
+        end
+
+        attribute :because, :string do
+          allow_nil? false
+          public? true
+        end
+
+        attribute :material, :boolean do
+          allow_nil? false
+          public? true
+          default false
+        end
+
+        attribute :max_age_days, :integer do
+          public? true
+        end
+
+        attribute :accepted_origins, {:array, :string} do
+          public? true
+        end
+
+        attribute :has_value, :boolean do
+          allow_nil? false
+          public? true
+          default false
+        end
+
+        attribute :standing_origin, :string do
+          public? true
+        end
+
+        attribute :observed_at, :utc_datetime_usec do
+          public? true
+        end
+
+        attribute :valid_until, :utc_datetime_usec do
+          public? true
+        end
+
+        attribute :assertion_id, :uuid do
+          public? true
+          description "Nil when the standing value is held outside the assertion table."
+        end
+
+        attribute :pending_count, :integer do
+          allow_nil? false
+          public? true
+          default 0
+          description "Statements about this attribute waiting on a person."
+        end
+
+        update_timestamp :refreshed_at
+      end
+
+      calculations do
+        calculate :gap_kind, :atom, AshMdm.Completeness.GapKind do
+          public? true
+          constraints one_of: unquote(gap_kinds)
+        end
+      end
+
+      identities do
+        identity :one_requirement, [:golden_resource, :golden_id, :profile_id, :attribute]
+      end
+
+      actions do
+        read :read do
+          primary? true
+        end
+
+        create :project do
+          description "Writes one assessment's inputs. Rebuildable; carries no value."
+
+          accept unquote([:golden_resource, :golden_id, :profile_id, :attribute | written])
+          upsert? true
+          upsert_identity :one_requirement
+          upsert_fields unquote(written)
+        end
+
+        destroy :clear do
+          description "Removes a projected row, for a rebuild."
         end
       end
 

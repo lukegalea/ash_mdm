@@ -11,6 +11,8 @@
   AshMdm.Fixtures.MatchRuleSet,
   AshMdm.Fixtures.MatchCandidate,
   AshMdm.Fixtures.AttributeAssertion,
+  AshMdm.Fixtures.CompletenessProfile,
+  AshMdm.Fixtures.AttributeGap,
   AshMdm.Test.Repo
 ]
 |> Enum.each(&Code.ensure_loaded!/1)

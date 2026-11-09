@@ -71,7 +71,8 @@ end
 
 defmodule AshMdm.Changes.LinkVersionChain do
   @moduledoc """
-  Derives the version-chain linkage from the `:from_mapping_id` predecessor:
+  Derives the version-chain linkage from the predecessor named by the
+  argument in the `:argument` option (default `:from_mapping_id`):
   `root_id`, `version + 1`, `supersedes_id`. The predecessor is untouched —
   nothing is overwritten, ever.
   """
@@ -79,18 +80,28 @@ defmodule AshMdm.Changes.LinkVersionChain do
   use Ash.Resource.Change
 
   @impl true
-  def change(changeset, _opts, _context) do
+  def change(changeset, opts, _context) do
+    argument = opts[:argument] || :from_mapping_id
+
     Ash.Changeset.before_action(changeset, fn changeset ->
       {:ok, predecessor} =
-        Ash.get(changeset.resource, Ash.Changeset.get_argument(changeset, :from_mapping_id),
+        Ash.get(changeset.resource, Ash.Changeset.get_argument(changeset, argument),
           authorize?: false
         )
 
-      changeset
-      |> Ash.Changeset.change_attribute(:supersedes_id, predecessor.id)
-      |> Ash.Changeset.change_attribute(:root_id, predecessor.root_id || predecessor.id)
-      |> Ash.Changeset.change_attribute(:version, (predecessor.version || 1) + 1)
-      |> Ash.Changeset.change_attribute(:status, :draft)
+      opts[:inherit]
+      |> List.wrap()
+      |> Enum.reduce(changeset, fn attribute, changeset ->
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          attribute,
+          Map.fetch!(predecessor, attribute)
+        )
+      end)
+      |> Ash.Changeset.force_change_attribute(:supersedes_id, predecessor.id)
+      |> Ash.Changeset.force_change_attribute(:root_id, predecessor.root_id || predecessor.id)
+      |> Ash.Changeset.force_change_attribute(:version, (predecessor.version || 1) + 1)
+      |> Ash.Changeset.force_change_attribute(:status, :draft)
     end)
   end
 end
@@ -138,23 +149,22 @@ defmodule AshMdm.Changes.Activate do
 
   use Ash.Resource.Change
 
+  @mapping_identity [:direction, :source, :stream, :target_resource]
+
   @impl true
-  def change(changeset, _opts, _context) do
+  def change(changeset, opts, _context) do
+    identity = opts[:identity] || @mapping_identity
+
     changeset
     # Retire predecessors BEFORE this row becomes active, otherwise the
     # one-active partial unique index sees two active rows for the tuple.
-    |> Ash.Changeset.before_action(&retire_predecessors/1)
+    |> Ash.Changeset.before_action(&retire_predecessors(&1, identity))
     |> Ash.Changeset.force_change_attribute(:status, :active)
   end
 
-  defp retire_predecessors(changeset) do
-    filters = [
-      direction: Ash.Changeset.get_attribute(changeset, :direction),
-      source: Ash.Changeset.get_attribute(changeset, :source),
-      stream: Ash.Changeset.get_attribute(changeset, :stream),
-      target_resource: Ash.Changeset.get_attribute(changeset, :target_resource),
-      status: :active
-    ]
+  defp retire_predecessors(changeset, identity) do
+    filters =
+      Enum.map(identity, &{&1, Ash.Changeset.get_attribute(changeset, &1)}) ++ [status: :active]
 
     filters =
       case Ash.Changeset.get_attribute(changeset, :organization_id) do
@@ -237,5 +247,32 @@ defmodule AshMdm.Changes.SealAssertion do
       :content_digest,
       AshMdm.Mapping.ContentHash.hash!(content)
     )
+  end
+end
+
+defmodule AshMdm.Changes.RunCompletenessValidation do
+  @moduledoc """
+  Runs `AshMdm.Completeness.Validator.findings/1`: draft -> validated only
+  when there are no errors, otherwise the profile stays a draft with its
+  findings.
+  """
+
+  use Ash.Resource.Change
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      findings =
+        AshMdm.Completeness.Validator.findings(%{
+          golden_resource: Ash.Changeset.get_attribute(changeset, :golden_resource),
+          requirements: Ash.Changeset.get_attribute(changeset, :requirements)
+        })
+
+      status = if(findings.errors == [], do: :validated, else: :draft)
+
+      changeset
+      |> Ash.Changeset.force_change_attribute(:validation_findings, findings)
+      |> Ash.Changeset.force_change_attribute(:status, status)
+    end)
   end
 end

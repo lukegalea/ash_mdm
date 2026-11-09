@@ -16,6 +16,8 @@ defmodule AshMdm.Fixtures do
     resource AshMdm.Fixtures.MatchRuleSet
     resource AshMdm.Fixtures.MatchCandidate
     resource AshMdm.Fixtures.AttributeAssertion
+    resource AshMdm.Fixtures.CompletenessProfile
+    resource AshMdm.Fixtures.AttributeGap
   end
 end
 
@@ -80,6 +82,27 @@ defmodule AshMdm.Fixtures.AttributeAssertion do
 
   use AshMdm.Resources,
       {:attribute_assertion, repo: AshMdm.Test.Repo, table: "mdm_attribute_assertions"}
+end
+
+defmodule AshMdm.Fixtures.CompletenessProfile do
+  @moduledoc "The macro-generated CompletenessProfile on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources,
+      {:completeness_profile, repo: AshMdm.Test.Repo, table: "mdm_completeness_profiles"}
+end
+
+defmodule AshMdm.Fixtures.AttributeGap do
+  @moduledoc "The macro-generated AttributeGap on the suite's own base."
+
+  use Ash.Resource,
+    domain: AshMdm.Fixtures,
+    data_layer: AshPostgres.DataLayer
+
+  use AshMdm.Resources, {:attribute_gap, repo: AshMdm.Test.Repo, table: "mdm_attribute_gaps"}
 end
 
 defmodule AshMdm.Fixtures.MatchRuleSet do
