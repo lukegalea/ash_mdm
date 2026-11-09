@@ -20,20 +20,24 @@ defmodule AshMdm.Match do
 
       %{"name" => "email_exact", "kind" => "exact", "fields" => ["email"], "weight" => 1.0}
       %{"name" => "name_fuzzy", "kind" => "fuzzy", "field" => "name",
-        "algorithm" => "levenshtein" | "jaro", "weight" => 0.5}
+        "algorithm" => "levenshtein" | "jaro", "weight" => 0.5,
+        "standardize" => ["unaccent", "legal_suffix"]}
 
-  Missing values on either side contribute 0 with the explanation noting
-  `"missing"` — absence is never evidence of a match.
+  `standardize` is optional and runs after trim and lowercase; see
+  `AshMdm.Standardize`.
+
+  Missing values on either side contribute 0 and the rule's entry gains
+  `"missing" => true`, so a calibration can tell "no data" from "disagreed".
+  Absence is never evidence of a match.
   """
   @spec score([map()], map(), map()) :: {Decimal.t(), map()}
   def score(rules, staged_map, golden_map) when is_list(rules) do
     {total_weight, parts} =
       Enum.reduce(rules, {Decimal.new(0), %{}}, fn rule, {w, exp} ->
         rule_weight = Decimal.from_float(rule_weight(rule) / 1)
-        contribution = contribution(rule, staged_map, golden_map)
+        part = rule |> contribution(staged_map, golden_map) |> part(rule_weight)
 
-        {Decimal.add(w, rule_weight),
-         Map.put(exp, rule["name"], %{"w" => rule_weight, "c" => contribution})}
+        {Decimal.add(w, rule_weight), Map.put(exp, rule["name"], part)}
       end)
 
     score =
@@ -52,25 +56,26 @@ defmodule AshMdm.Match do
   defp rule_weight(%{"weight" => w}) when is_number(w) and w > 0, do: w * 1.0
   defp rule_weight(_), do: 1.0
 
-  defp contribution(%{"kind" => "exact", "fields" => fields}, staged, golden) do
-    values = for f <- fields, into: %{}, do: {f, {normalized(staged[f]), normalized(golden[f])}}
+  defp part(:missing, weight), do: %{"w" => weight, "c" => Decimal.new(0), "missing" => true}
+  defp part(contribution, weight), do: %{"w" => weight, "c" => contribution}
 
-    if Enum.any?(values, fn {_f, {s, g}} -> is_nil(s) or is_nil(g) end) do
-      Decimal.new(0)
-    else
-      if Enum.all?(values, fn {_f, {s, g}} -> s == g end),
-        do: Decimal.new(1),
-        else: Decimal.new(0)
+  defp contribution(%{"kind" => "exact", "fields" => fields} = rule, staged, golden) do
+    values = Enum.map(fields, &{normalized(staged[&1], rule), normalized(golden[&1], rule)})
+
+    cond do
+      Enum.any?(values, fn {s, g} -> is_nil(s) or is_nil(g) end) -> :missing
+      Enum.all?(values, fn {s, g} -> s == g end) -> Decimal.new(1)
+      true -> Decimal.new(0)
     end
   end
 
   defp contribution(%{"kind" => "fuzzy", "field" => field} = rule, staged, golden) do
-    s = normalized(staged[field])
-    g = normalized(golden[field])
+    s = normalized(staged[field], rule)
+    g = normalized(golden[field], rule)
 
     cond do
       is_nil(s) or is_nil(g) ->
-        Decimal.new(0)
+        :missing
 
       s == g ->
         Decimal.new(1)
@@ -82,8 +87,15 @@ defmodule AshMdm.Match do
 
   defp contribution(_unknown_kind, _staged, _golden), do: Decimal.new(0)
 
-  defp normalized(nil), do: nil
-  defp normalized(v), do: v |> to_string() |> String.trim() |> String.downcase()
+  defp normalized(nil, _rule), do: nil
+
+  defp normalized(value, rule) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> AshMdm.Standardize.run(rule["standardize"] || [])
+  end
 
   defp similarity(s, g, "jaro"), do: s |> String.jaro_distance(g) |> Decimal.from_float()
 
