@@ -75,6 +75,27 @@ defmodule AshMdm.GoldenPairCandidateTest do
       assert [_] = Ash.read!(MatchCandidate)
     end
 
+    test "a second create of the reversed pair is an identity error, not a crash" do
+      assert {:ok, _} = create_pair()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               create_pair(%{golden_id: @high, other_golden_id: @low})
+    end
+
+    test "a self-pair in a bulk create is a validation error on the field" do
+      result =
+        Ash.bulk_create(
+          [pair_input(%{other_golden_id: @low})],
+          MatchCandidate,
+          :create_golden_pair,
+          return_errors?: true
+        )
+
+      assert result.status == :error
+      assert [%Ash.Error.Invalid{} = error] = result.errors
+      assert :other_golden_id in invalid_fields({:error, error})
+    end
+
     test "a self-pair is refused" do
       assert {:error, _} = result = create_pair(%{other_golden_id: @low})
       assert :other_golden_id in invalid_fields(result)
@@ -117,7 +138,7 @@ defmodule AshMdm.GoldenPairCandidateTest do
   end
 
   describe "exactly one of staged record and other golden" do
-    test "both set is refused by the validation" do
+    test "both set, forced in after the action ran, is refused by the check constraint" do
       result =
         MatchCandidate
         |> Ash.Changeset.for_create(:create, staged_input())
@@ -134,6 +155,20 @@ defmodule AshMdm.GoldenPairCandidateTest do
         |> Ash.create()
 
       assert :staged_record_id in invalid_fields(result)
+    end
+
+    test "neither set in a bulk create is a validation error on the field" do
+      result =
+        Ash.bulk_create(
+          [staged_input(%{staged_record_id: nil})],
+          MatchCandidate,
+          :create,
+          return_errors?: true
+        )
+
+      assert result.status == :error
+      assert [%Ash.Error.Invalid{} = error] = result.errors
+      assert :staged_record_id in invalid_fields({:error, error})
     end
 
     test "the database refuses both set" do

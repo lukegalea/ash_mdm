@@ -114,10 +114,12 @@ natively; the package never assumes an actor model.
   `:one_golden_pair`; a second create is an identity error). The host owns the
   DDL: `staged_record_id` nullable, `other_golden_id uuid`, a check
   `(staged_record_id IS NULL) <> (other_golden_id IS NULL)`, a unique index
-  `<table>_one_golden_pair` on `(golden_resource, golden_id, other_golden_id)
-  WHERE other_golden_id IS NOT NULL`, plus `identity_wheres_to_sql
-  one_golden_pair: "other_golden_id IS NOT NULL"` in its `postgres` block.
-  Staged candidates and `:one_pair` are unchanged.
+  `<table>_one_golden_pair_index` on `(golden_resource, golden_id,
+  other_golden_id) WHERE other_golden_id IS NOT NULL`, plus
+  `identity_wheres_to_sql one_golden_pair: "other_golden_id IS NOT NULL"` in
+  its `postgres` block. Staged candidates and `:one_pair` are unchanged. A bulk
+  upsert must not carry one pair twice in a batch, in either order: Postgres
+  refuses the whole batch.
 - Merging golden records is host code; the package neither merges nor
   deletes rows. The mapping validator skips the CDM merge columns (`merged`,
   `master_id`) along with the other system columns when it checks total

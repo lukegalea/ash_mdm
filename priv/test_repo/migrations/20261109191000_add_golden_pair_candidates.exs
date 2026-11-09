@@ -19,12 +19,17 @@ defmodule AshMdm.Test.Repo.Migrations.AddGoldenPairCandidates do
 
     create unique_index(:mdm_match_candidates, [:golden_resource, :golden_id, :other_golden_id],
              where: "other_golden_id IS NOT NULL",
-             name: :mdm_match_candidates_one_golden_pair
+             name: :mdm_match_candidates_one_golden_pair_index
            )
   end
 
   def down do
-    drop(index(:mdm_match_candidates, [:golden_resource, :golden_id, :other_golden_id], name: :mdm_match_candidates_one_golden_pair))
+    drop(
+      index(:mdm_match_candidates, [:golden_resource, :golden_id, :other_golden_id],
+        name: :mdm_match_candidates_one_golden_pair_index
+      )
+    )
+
     drop(constraint(:mdm_match_candidates, :exactly_one_pairing))
 
     alter table(:mdm_match_candidates) do

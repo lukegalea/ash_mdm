@@ -5,10 +5,13 @@
 defmodule AshMdm.Validations.ExactlyOnePairing do
   @moduledoc """
   A match candidate pairs a golden with a staged record or with another
-  golden, never both and never neither.
+  golden, never both and never neither. Returns exceptions, not keyword
+  errors, because a bulk create turns a keyword error into an unknown error.
   """
 
   use Ash.Resource.Validation
+
+  alias Ash.Error.Changes.InvalidAttribute
 
   @impl true
   def validate(changeset, _opts, _context) do
@@ -24,12 +27,17 @@ defmodule AshMdm.Validations.ExactlyOnePairing do
 
       {true, true} ->
         {:error,
-         field: :other_golden_id,
-         message: "a candidate pairs a staged record or a golden, not both"}
+         InvalidAttribute.exception(
+           field: :other_golden_id,
+           message: "a candidate pairs a staged record or a golden, not both"
+         )}
 
       {false, false} ->
         {:error,
-         field: :staged_record_id, message: "a candidate needs a staged record or another golden"}
+         InvalidAttribute.exception(
+           field: :staged_record_id,
+           message: "a candidate needs a staged record or another golden"
+         )}
     end
   end
 
