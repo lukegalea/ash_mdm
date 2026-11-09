@@ -57,6 +57,10 @@ natively; the package never assumes an actor model.
   value; `gap_kind` is computed at read, so nothing has to run for a value to
   go stale. Don't add a stored status.
 - The attribute gap macro ships no read policy either. Gate it on the golden.
+- `AshMdm.Tuning.propose/2` turns judged pairs into proposed rule weights.
+  Write the result with the rule set's `:create_version` and have a person
+  activate it. Never apply a proposal directly: a new content hash means the
+  bands must be earned again.
 - Every create action on a versioned resource stamps `content_hash` with
   `AshMdm.Changes.SetContentHash`, whose `fields:` option names what the hash
   covers: `field_rules` on a mapping, `rules` and `survivorship` on a rule set.
