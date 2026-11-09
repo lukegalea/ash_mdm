@@ -19,7 +19,9 @@ defmodule AshMdm.Survivorship do
   Strategies:
 
     * `most_recent`  — the record whose `observed_at` is latest
-    * `source_rank`  — earliest source in the policy's `source_rank` list
+    * `source_rank`  — earliest source in the policy's `source_rank` list.
+      Every record's `source` must be a real source name: one the list does
+      not name ranks last, so placeholders tie and the first record wins
     * `most_complete` — the record with the fewest nil attributes
     * `non_null`     — first non-nil in record order (the default)
     * `steward_override` — the record the steward nominated; recorded as

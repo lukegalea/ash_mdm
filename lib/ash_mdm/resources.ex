@@ -44,7 +44,8 @@ defmodule AshMdm.Resources do
   `AshMdm.Survivorship`). `:draft` -> `:activate` -> `:retire`; activation
   retires the previously active set for the same `golden_resource` and
   refuses unknown survivorship strategies
-  (`AshMdm.Validations.ValidSurvivorship`). Options:
+  (`AshMdm.Validations.ValidSurvivorship`). `:draft` stamps `content_hash`
+  over `rules` and `survivorship`. Options:
 
     * `:repo`, `:table` — required; the macro owns the `postgres` block.
 
@@ -177,7 +178,7 @@ defmodule AshMdm.Resources do
             :activation_note
           ]
 
-          change AshMdm.Changes.SetContentHash
+          change {AshMdm.Changes.SetContentHash, fields: [:field_rules]}
           change AshMdm.Changes.OpenVersionChain
         end
 
@@ -203,7 +204,7 @@ defmodule AshMdm.Resources do
             :activation_note
           ]
 
-          change AshMdm.Changes.SetContentHash
+          change {AshMdm.Changes.SetContentHash, fields: [:field_rules]}
           change AshMdm.Changes.LinkVersionChain
         end
 
@@ -303,6 +304,8 @@ defmodule AshMdm.Resources do
 
         attribute :content_hash, :string do
           public? true
+
+          description "SHA-256 over canonical JSON of rules and survivorship (AshMdm.Mapping.ContentHash)."
         end
 
         create_timestamp :inserted_at
@@ -316,7 +319,7 @@ defmodule AshMdm.Resources do
 
         create :draft do
           accept [:golden_resource, :rules, :survivorship]
-          change AshMdm.Changes.SetContentHash
+          change {AshMdm.Changes.SetContentHash, fields: [:rules, :survivorship]}
           change AshMdm.Changes.OpenVersionChain
         end
 

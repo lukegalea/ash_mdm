@@ -3,19 +3,51 @@
 # SPDX-License-Identifier: MIT
 
 defmodule AshMdm.Changes.SetContentHash do
-  @moduledoc "Stamps `content_hash` from the canonical field_rules JSON."
+  @moduledoc """
+  Stamps `content_hash` from the canonical JSON of the attributes named by
+  the required `fields:` option.
+
+  One field hashes that attribute's bare value (a mapping's `field_rules`);
+  several hash a map keyed by field name (a rule set's `rules` and
+  `survivorship`). A field the resource does not have raises: a hash of
+  nothing would be a valid-looking constant.
+  """
 
   use Ash.Resource.Change
 
   @impl true
-  def change(changeset, _opts, _context) do
+  def init(opts) do
+    case opts[:fields] do
+      [_ | _] = fields ->
+        if Enum.all?(fields, &is_atom/1),
+          do: {:ok, opts},
+          else: {:error, "fields must be a list of attribute names"}
+
+      _ ->
+        {:error, "fields is required: the attributes the content hash covers"}
+    end
+  end
+
+  @impl true
+  def change(changeset, opts, _context) do
+    fields = opts[:fields]
+
+    for field <- fields, is_nil(Ash.Resource.Info.attribute(changeset.resource, field)) do
+      raise ArgumentError,
+            "#{inspect(changeset.resource)} has no attribute #{inspect(field)} to content-hash"
+    end
+
     Ash.Changeset.before_action(changeset, fn changeset ->
-      hash =
-        AshMdm.Mapping.ContentHash.hash!(Ash.Changeset.get_attribute(changeset, :field_rules))
+      hash = AshMdm.Mapping.ContentHash.hash!(content(changeset, fields))
 
       Ash.Changeset.force_change_attribute(changeset, :content_hash, hash)
     end)
   end
+
+  defp content(changeset, [field]), do: Ash.Changeset.get_attribute(changeset, field)
+
+  defp content(changeset, fields),
+    do: Map.new(fields, &{&1, Ash.Changeset.get_attribute(changeset, &1)})
 end
 
 defmodule AshMdm.Changes.OpenVersionChain do
