@@ -56,7 +56,10 @@ defmodule AshMdm.Completeness do
 
   @doc """
   One entry per required attribute. Options: `:policy` (survivorship policy,
-  default `%{}`), `:depths` (see `AshMdm.Assertions.chain_depths/2`), `:now`.
+  default `%{}`), `:depths` (see `AshMdm.Assertions.chain_depths/2`),
+  `:incumbent` (a one-arity function marking the golden's held value, see
+  `AshMdm.Assertions`; it is passed through to `standing/3`, so when the
+  held value stands the assessment names its origin), `:now`.
   """
   @spec assess([map()], [map()], keyword()) :: [map()]
   def assess(requirements, assertions, opts \\ []) when is_list(requirements) do

@@ -280,4 +280,29 @@ defmodule AshMdm.CompletenessTest do
     assert [%{assertion_id: "b"}] =
              Completeness.assess([need("name")], assertions, now: @now, policy: policy)
   end
+
+  describe "the incumbent option" do
+    test "assess reports the incumbent's origin when it stands" do
+      held =
+        statement("name", "Held", %{id: "held", origin_kind: :enrichment, observed_at: @recent})
+
+      history = statement("name", "History", %{id: "old", source: "mail", observed_at: @old})
+      incumbent = &(&1.id == "held")
+
+      assert [%{assertion_id: "old", standing_origin: "import"}] =
+               Completeness.assess([need("name")], [held, history], now: @now)
+
+      assert [%{assertion_id: "held", standing_origin: "enrichment"}] =
+               Completeness.assess([need("name")], [held, history],
+                 now: @now,
+                 incumbent: incumbent
+               )
+    end
+
+    test "a non-function raises" do
+      assert_raise ArgumentError, fn ->
+        Completeness.assess([need("name")], [statement("name", "A")], now: @now, incumbent: 1)
+      end
+    end
+  end
 end

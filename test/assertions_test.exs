@@ -620,4 +620,113 @@ defmodule AshMdm.AssertionsTest do
       assert Map.keys(result) |> Enum.sort() == [:merged, :provenance]
     end
   end
+
+  describe "the incumbent option" do
+    @held %{"held" => true}
+    @old_import ~U[2024-01-01 00:00:00.000000Z]
+
+    defp held?(assertion), do: assertion.origin_ref == @held
+
+    defp held_and_history(extra \\ []) do
+      [
+        assertion("held", "name", "Held", %{
+          origin_ref: @held,
+          source: "golden",
+          observed_at: @early
+        }),
+        assertion("old", "name", "History", %{source: "mail", observed_at: @old_import})
+      ] ++ extra
+    end
+
+    test "the default lets older-dated history replace the held value" do
+      assert %{merged: %{"name" => "History"}} = Assertions.fold(%{}, held_and_history())
+    end
+
+    test "an old-dated import loses to the incumbent under non_null" do
+      assert %{merged: %{"name" => "Held"}, provenance: %{"name" => %{"assertion_id" => "held"}}} =
+               Assertions.fold(%{}, held_and_history(), incumbent: &held?/1)
+    end
+
+    test "input order does not matter" do
+      assert %{merged: %{"name" => "Held"}} =
+               Assertions.fold(%{}, Enum.reverse(held_and_history()), incumbent: &held?/1)
+    end
+
+    test "a human statement beats the incumbent" do
+      assertions =
+        held_and_history([
+          assertion("steward", "name", "Steward", %{
+            origin_kind: :human,
+            source: "steward",
+            observed_at: @late
+          })
+        ])
+
+      assert %{merged: %{"name" => "Steward"}} =
+               Assertions.fold(%{}, assertions, incumbent: &held?/1)
+    end
+
+    test "depth beats the incumbent" do
+      assertions = [
+        assertion("held", "name", "Absorbed held", %{
+          golden_id: @absorbed,
+          origin_ref: @held,
+          source: "golden"
+        }),
+        assertion("s", "name", "Survivor", %{observed_at: @late})
+      ]
+
+      depths = Assertions.chain_depths(@golden, [{@absorbed, @golden}])
+
+      assert %{merged: %{"name" => "Survivor"}} =
+               Assertions.fold(%{}, assertions, depths: depths, incumbent: &held?/1)
+    end
+
+    test "most_recent still takes the latest observation" do
+      policy = %{"default" => "most_recent"}
+
+      assert %{merged: %{"name" => "Held"}} =
+               Assertions.fold(policy, held_and_history(), incumbent: &held?/1)
+    end
+
+    test "most_complete decides on completeness and the incumbent breaks ties" do
+      policy = %{"default" => "most_complete"}
+
+      assert %{merged: %{"name" => "Held"}} =
+               Assertions.fold(policy, held_and_history(), incumbent: &held?/1)
+
+      richer =
+        held_and_history([
+          assertion("e", "email", "a@x.io", %{source: "mail", observed_at: @old_import})
+        ])
+
+      assert %{merged: %{"name" => "History"}} =
+               Assertions.fold(policy, richer, incumbent: &held?/1)
+    end
+
+    test "standing names the incumbent as the supporting statement" do
+      assert %{statements: %{"name" => %{id: "held"}}} =
+               Assertions.standing(%{}, held_and_history(), incumbent: &held?/1)
+    end
+
+    test "pending ignores the option's concerns" do
+      review = assertion("r", "name", "Maybe", %{band: :review})
+      assert [%{id: "r"}] = Assertions.pending(held_and_history([review]))
+    end
+
+    test "a non-function raises" do
+      assert_raise ArgumentError, ~r/incumbent/, fn ->
+        Assertions.fold(%{}, held_and_history(), incumbent: :yes)
+      end
+
+      assert_raise ArgumentError, fn ->
+        Assertions.fold(%{}, held_and_history(), incumbent: fn _a, _b -> true end)
+      end
+    end
+
+    test "absent option and a never-true function give the same fold" do
+      assert Assertions.fold(%{}, held_and_history()) ==
+               Assertions.fold(%{}, held_and_history(), incumbent: fn _ -> false end)
+    end
+  end
 end

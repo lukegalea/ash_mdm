@@ -14,14 +14,34 @@ defmodule AshMdm.Assertions do
 
     1. merge-chain depth, the surviving golden first;
     2. within a depth, `:human` statements before all others;
-    3. `observed_at`, oldest first;
-    4. id, so the order is total.
+    3. with the `:incumbent` option, the statement the golden already holds,
+       before any other;
+    4. `observed_at`, oldest first;
+    5. id, so the order is total.
 
   So under the default policy a person's statement beats any import, the value
   a golden already holds keeps winning over what another source says later,
   and a survivor's value wins over an absorbed record's, even a person's.
   A `steward_override` policy resolves to the human statement for the same
   reason, and its provenance names that statement.
+
+  ## Incumbent
+
+  By default the order is by `observed_at` alone, so history imported late
+  and dated before the value a golden holds replaces that value. A host that
+  materializes the held value as a statement passes `incumbent: fun`, a
+  one-arity function that returns true for exactly that statement, and the
+  held value then outranks other sources however old their evidence is. A
+  person still beats it, and depth still comes first: a survivor's statement
+  beats an absorbed golden's incumbent. Mark only the materialized held
+  value, never every statement of a source. The same option serves a host
+  that reads values from a legacy row it has not migrated.
+
+  The option reorders competitors, nothing else. `most_recent` still picks
+  the latest `observed_at` and `most_complete` the highest completeness, so
+  the incumbent only decides ties there, as the first record in order does.
+  `pending/1` and the retraction walk never order competitors, so they are
+  unaffected. Without the option nothing changes.
 
   A source speaks for itself once: on each golden and attribute, only the
   newest statement from one origin kind and source competes. That is what
@@ -82,6 +102,9 @@ defmodule AshMdm.Assertions do
 
     * `:depths`: `%{golden_id => depth}` from `chain_depths/2`. A golden not
       in the map is depth 0.
+    * `:incumbent`: a one-arity function, true for a statement that is the
+      golden's held value. It ranks after `:human` and before the oldest-first
+      order. A non-function raises `ArgumentError`.
   """
   @spec fold(map(), [map()], keyword()) :: %{merged: map(), provenance: map()}
   def fold(policy, assertions, opts \\ []) when is_map(policy) and is_list(assertions) do
@@ -101,10 +124,11 @@ defmodule AshMdm.Assertions do
         }
   def standing(policy, assertions, opts \\ []) when is_map(policy) and is_list(assertions) do
     depths = Keyword.get(opts, :depths, %{})
+    incumbent = incumbent!(opts)
 
     statements = assertions |> competing() |> latest_per_source()
 
-    case statements |> Enum.sort_by(&order_key(&1, depths)) |> records() do
+    case statements |> Enum.sort_by(&order_key(&1, depths, incumbent)) |> records(incumbent) do
       [] ->
         %{merged: %{}, provenance: %{}, statements: %{}, supporting: %{}}
 
@@ -246,23 +270,40 @@ defmodule AshMdm.Assertions do
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_), do: false
 
-  defp order_key(assertion, depths) do
+  defp incumbent!(opts) do
+    case Keyword.get(opts, :incumbent) do
+      nil ->
+        fn _assertion -> false end
+
+      fun when is_function(fun, 1) ->
+        fun
+
+      other ->
+        raise ArgumentError, ":incumbent must be a one-arity function, got: #{inspect(other)}"
+    end
+  end
+
+  defp order_key(assertion, depths, incumbent) do
     {Map.get(depths, Map.get(assertion, :golden_id), 0), person_rank(assertion),
-     micros(assertion.observed_at), to_string(Map.get(assertion, :id))}
+     incumbent_rank(assertion, incumbent), micros(assertion.observed_at),
+     to_string(Map.get(assertion, :id))}
   end
 
   defp person_rank(%{origin_kind: :human}), do: 0
   defp person_rank(_assertion), do: 1
 
+  defp incumbent_rank(assertion, incumbent), do: if(incumbent.(assertion) == true, do: 0, else: 1)
+
   # One statement of origin becomes one record, however many attributes it
   # spoke to; `completeness` lets `most_complete` compare what each speaker
   # currently holds as a whole, however a correction has split it.
-  defp records(sorted) do
-    groups = Enum.group_by(sorted, &group_key/1)
+  defp records(sorted, incumbent) do
+    group_key = &{group_key(&1), incumbent_rank(&1, incumbent)}
+    groups = Enum.group_by(sorted, group_key)
     held = Enum.frequencies_by(sorted, &holder/1)
 
     sorted
-    |> Enum.map(&group_key/1)
+    |> Enum.map(group_key)
     |> Enum.uniq()
     |> Enum.map(&record(Map.fetch!(groups, &1), held))
   end
