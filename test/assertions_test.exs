@@ -729,4 +729,86 @@ defmodule AshMdm.AssertionsTest do
                Assertions.fold(%{}, held_and_history(), incumbent: fn _ -> false end)
     end
   end
+
+  describe "the incumbent option, adversarial" do
+    @held %{"held" => true}
+    @old_import ~U[2024-01-01 00:00:00.000000Z]
+
+    defp held_stmt(overrides \\ %{}) do
+      assertion(
+        "held",
+        "name",
+        "Held",
+        Map.merge(%{origin_ref: @held, source: "golden"}, overrides)
+      )
+    end
+
+    defp history,
+      do: assertion("old", "name", "History", %{source: "mail", observed_at: @old_import})
+
+    defp held?(a), do: a.origin_ref == @held
+
+    defp name(assertions, opts \\ []),
+      do: Assertions.fold(%{}, assertions, [incumbent: &held?/1] ++ opts).merged["name"]
+
+    test "a retracted incumbent no longer outranks" do
+      retraction =
+        assertion("r", "name", nil, %{origin_kind: :retraction, retracts_id: "held", source: "x"})
+
+      assert name([held_stmt(), history(), retraction]) == "History"
+    end
+
+    test "an incumbent banded review or omit does not compete" do
+      for band <- [:review, :omit] do
+        assert name([held_stmt(%{band: band}), history()]) == "History"
+      end
+    end
+
+    test "an incumbent superseded by its own source gives way to the newer statement" do
+      newer =
+        assertion("held2", "name", "Held v2", %{
+          origin_ref: %{"held" => false},
+          source: "golden",
+          observed_at: @late
+        })
+
+      assert name([held_stmt(), newer, history()]) == "Held v2" or
+               name([held_stmt(), newer, history()]) == "History"
+
+      refute name([held_stmt(), newer, history()]) == "Held"
+    end
+
+    test "two incumbents on one attribute fall back to oldest first" do
+      other =
+        assertion("held-b", "name", "Held B", %{
+          origin_ref: @held,
+          source: "legacy",
+          observed_at: @late
+        })
+
+      assert name([other, held_stmt(), history()]) == "Held"
+    end
+
+    test "incumbents across chain depths: shallowest wins" do
+      deep = held_stmt(%{golden_id: @absorbed, observed_at: @old_import, id: "deep"})
+
+      shallow =
+        assertion("shallow", "name", "Shallow", %{
+          origin_ref: @held,
+          source: "legacy",
+          observed_at: @late
+        })
+
+      depths = Assertions.chain_depths(@golden, [{@absorbed, @golden}])
+      assert name([deep, shallow], depths: depths) == "Shallow"
+    end
+
+    test "standing and pending agree with fold on a review incumbent" do
+      review = held_stmt(%{band: :review})
+      assert Enum.map(Assertions.pending([review, history()]), & &1.id) == ["held"]
+
+      assert Assertions.standing(%{}, [review, history()], incumbent: &held?/1).merged ==
+               Assertions.fold(%{}, [review, history()], incumbent: &held?/1).merged
+    end
+  end
 end
