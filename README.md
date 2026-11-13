@@ -31,6 +31,8 @@ Supporting modules: `AshMdm.Mapping.Evaluator` (the rule fold),
 egress-aware path/target semantics, decode totality + injectivity, required
 paths, cast compatibility), `AshMdm.Mapping.ContentHash` (SHA-256 over the
 canonical JSON of a mapping's rules, or a rule set's rules and survivorship),
+`AshMdm.Mapping.Diff` (what changed between two mapping versions, by target
+and field rule, as plain change maps a host can render or store),
 `AshMdm.Changes` (content hash, version chain, run
 validation, activation), `AshMdm.Validations.ValidSurvivorship` (declared
 survivorship must name real strategies), `AshMdm.Survivorship` (the
