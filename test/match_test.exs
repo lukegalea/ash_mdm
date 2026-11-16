@@ -11,6 +11,8 @@ defmodule AshMdm.MatchTest do
 
   alias AshMdm.Match
 
+  doctest AshMdm.Match
+
   @rules [
     %{"name" => "email_exact", "kind" => "exact", "fields" => ["email"], "weight" => 1.0},
     %{
@@ -97,5 +99,62 @@ defmodule AshMdm.MatchTest do
 
     assert Decimal.gt?(close, far)
     assert Decimal.gt?(close, Decimal.new(0))
+  end
+
+  describe "compared/2: what each rule compares" do
+    @standardized [
+      %{
+        "name" => "name_fuzzy",
+        "kind" => "fuzzy",
+        "field" => "name",
+        "standardize" => ["unaccent", "legal_suffix"]
+      },
+      %{"name" => "lei_exact", "kind" => "exact", "fields" => ["lei"], "standardize" => ["lei"]},
+      %{"name" => "mystery", "kind" => "telepathy", "field" => "name"}
+    ]
+
+    test "one entry per rule and field, with raw, compared and the standardizers" do
+      assert [name, lei] =
+               Match.compared(@standardized, %{
+                 "name" => "  Société Acme Ltd. ",
+                 "lei" => "5493001kjtiigc8y1r12"
+               })
+
+      assert %{
+               "rule" => "name_fuzzy",
+               "field" => "name",
+               "raw" => "  Société Acme Ltd. ",
+               "compared" => "societe acme",
+               "standardize" => ["unaccent", "legal_suffix"],
+               "absent" => false
+             } = name
+
+      assert %{"rule" => "lei_exact", "compared" => "5493001KJTIIGC8Y1R12", "absent" => false} =
+               lei
+    end
+
+    test "a value a standardizer empties, or an invalid LEI, is absent" do
+      assert [_name, %{"compared" => nil, "absent" => true}] =
+               Match.compared(@standardized, %{"name" => "Acme", "lei" => "not-an-lei"})
+
+      assert [%{"compared" => nil, "absent" => true}, %{"raw" => nil, "absent" => true}] =
+               Match.compared(@standardized, %{"name" => "   "})
+    end
+
+    test "the compared values are what score/3 judges" do
+      staged = %{"name" => "ACME Ltd", "lei" => nil}
+      golden = %{"name" => "acme", "lei" => "5493001KJTIIGC8Y1R12"}
+      rules = Enum.take(@standardized, 2)
+
+      [s_name, s_lei] = Match.compared(rules, staged)
+      [g_name, _g_lei] = Match.compared(rules, golden)
+
+      {_score, parts} = Match.score(rules, staged, golden)
+
+      assert s_name["compared"] == g_name["compared"]
+      assert Decimal.eq?(parts["name_fuzzy"]["c"], 1)
+      assert s_lei["absent"]
+      assert parts["lei_exact"]["missing"]
+    end
   end
 end

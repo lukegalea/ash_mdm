@@ -92,9 +92,22 @@ defmodule AshMdm.Match do
 
   defp contribution(_unknown_kind, _staged, _golden), do: Decimal.new(0)
 
-  defp normalized(nil, _rule), do: nil
+  @doc """
+  The value a rule compares for one raw field value: trimmed, lowercased,
+  run through the rule's `standardize` list (`AshMdm.Standardize`), and
+  `nil` when that leaves nothing. This is the exact value `score/3` compares,
+  so a host can show what matching saw without re-deriving it.
 
-  defp normalized(value, rule) do
+      iex> AshMdm.Match.compared_value("  Acme Ltd. ", %{"standardize" => ["legal_suffix"]})
+      "acme"
+
+      iex> AshMdm.Match.compared_value("   ", %{})
+      nil
+  """
+  @spec compared_value(term(), map()) :: String.t() | nil
+  def compared_value(nil, _rule), do: nil
+
+  def compared_value(value, rule) do
     value
     |> to_string()
     |> String.trim()
@@ -102,6 +115,45 @@ defmodule AshMdm.Match do
     |> AshMdm.Standardize.run(rule["standardize"] || [])
     |> blank_to_nil()
   end
+
+  @doc """
+  What each rule compares in one record: one entry per (rule, field), in
+  rule order, with the raw value, the compared value (`compared_value/2`),
+  the standardizers the rule names, and `"absent"` when the compared value
+  is `nil` — the same absence `score/3` reports as `"missing"`.
+
+      iex> AshMdm.Match.compared(
+      ...>   [%{"name" => "name_fuzzy", "kind" => "fuzzy", "field" => "name",
+      ...>      "standardize" => ["legal_suffix"]}],
+      ...>   %{"name" => "Acme Ltd."}
+      ...> )
+      [%{"rule" => "name_fuzzy", "field" => "name", "raw" => "Acme Ltd.",
+         "compared" => "acme", "standardize" => ["legal_suffix"], "absent" => false}]
+
+  A rule of an unknown kind compares nothing and has no entry.
+  """
+  @spec compared([map()], map()) :: [map()]
+  def compared(rules, record) when is_list(rules) do
+    for rule <- rules, field <- rule_fields(rule) do
+      raw = record[field]
+      compared = compared_value(raw, rule)
+
+      %{
+        "rule" => rule["name"],
+        "field" => field,
+        "raw" => raw,
+        "compared" => compared,
+        "standardize" => rule["standardize"] || [],
+        "absent" => is_nil(compared)
+      }
+    end
+  end
+
+  defp rule_fields(%{"kind" => "exact", "fields" => fields}) when is_list(fields), do: fields
+  defp rule_fields(%{"kind" => "fuzzy", "field" => field}), do: [field]
+  defp rule_fields(_unknown_kind), do: []
+
+  defp normalized(value, rule), do: compared_value(value, rule)
 
   defp present?(value), do: not is_nil(value)
 
