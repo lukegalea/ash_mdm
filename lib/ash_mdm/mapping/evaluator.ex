@@ -32,7 +32,7 @@ defmodule AshMdm.Mapping.Evaluator do
   discipline the closed vocabulary is for.
   """
 
-  @ops ~w(identity cast trim case parse_date parse_decimal decode concat coalesce constant regex_extract ref_lookup uuid_v5 unmapped)
+  @ops ~w(identity cast trim collapse_whitespace fold_accents case parse_date parse_decimal decode concat coalesce constant regex_extract ref_lookup uuid_v5 unmapped)
 
   def ops, do: @ops
 
@@ -196,6 +196,23 @@ defmodule AshMdm.Mapping.Evaluator do
 
   defp transform("trim", v, _args, _opts) when is_binary(v), do: {:ok, String.trim(v)}
   defp transform("trim", v, _args, _opts), do: {:error, {:not_a_string, v}}
+
+  # Runs of any Unicode whitespace become one space, and the ends are trimmed:
+  # "Zoe   Smith " and "Zoe Smith" are one name.
+  defp transform("collapse_whitespace", v, _args, _opts) when is_binary(v),
+    do: {:ok, v |> String.replace(~r/[\s\p{Z}]+/u, " ") |> String.trim()}
+
+  defp transform("collapse_whitespace", v, _args, _opts), do: {:error, {:not_a_string, v}}
+
+  # Compatibility decomposition (NFKD), then every combining mark is dropped:
+  # "Zoë" and "Zoe" are one name, and so are "ﬁ" and "fi". Unlike the match
+  # standardizer `unaccent`, this strips marks on every script, so it belongs
+  # on Latin-script name fields, not on Devanagari or Thai text.
+  defp transform("fold_accents", v, _args, _opts) when is_binary(v) do
+    {:ok, v |> :unicode.characters_to_nfkd_binary() |> String.replace(~r/\p{Mn}+/u, "")}
+  end
+
+  defp transform("fold_accents", v, _args, _opts), do: {:error, {:not_a_string, v}}
 
   defp transform("case", v, %{"mode" => mode}, _opts) when is_binary(v) do
     case mode do
