@@ -322,8 +322,8 @@ defmodule AshMdm.Resources do
 
     index_cols =
       if tenant?,
-        do: [:organization_id, :golden_resource],
-        else: [:golden_resource]
+        do: [:organization_id, :golden_resource, :scope],
+        else: [:golden_resource, :scope]
 
     index_name = "#{table}_one_active"
 
@@ -335,6 +335,22 @@ defmodule AshMdm.Resources do
           allow_nil? false
           public? true
           constraints max_length: 256
+        end
+
+        attribute :scope, :string do
+          allow_nil? false
+          public? true
+          default ""
+          constraints max_length: 256, allow_empty?: true, trim?: false
+
+          description """
+          Which of a golden resource's several rule sets this is, such as the
+          ingress mapping or source it serves. Activation retires only the
+          active set with the same golden resource and scope, and the database
+          allows one active set per (golden resource, scope). The default, the
+          empty string, is the unscoped set: a host that never sets a scope
+          keeps one active set per golden resource. Not part of `content_hash`.
+          """
         end
 
         attribute :rules, {:array, :map} do
@@ -385,7 +401,7 @@ defmodule AshMdm.Resources do
         end
 
         create :draft do
-          accept [:golden_resource, :rules, :survivorship]
+          accept [:golden_resource, :scope, :rules, :survivorship]
           change {AshMdm.Changes.SetContentHash, fields: [:rules, :survivorship]}
           change AshMdm.Changes.OpenVersionChain
         end
@@ -401,7 +417,7 @@ defmodule AshMdm.Resources do
           change {AshMdm.Changes.SetContentHash, fields: [:rules, :survivorship]}
 
           change {AshMdm.Changes.LinkVersionChain,
-                  argument: :from_rule_set_id, inherit: [:golden_resource]}
+                  argument: :from_rule_set_id, inherit: [:golden_resource, :scope]}
         end
 
         update :activate do
@@ -413,7 +429,7 @@ defmodule AshMdm.Resources do
           # merge with the default.
           validate AshMdm.Validations.ValidSurvivorship
           validate AshMdm.Validations.ValidMatchRules
-          change {AshMdm.Changes.Activate, identity: [:golden_resource], from: :draft}
+          change {AshMdm.Changes.Activate, identity: [:golden_resource, :scope], from: :draft}
         end
 
         update :retire do
