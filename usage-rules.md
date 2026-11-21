@@ -20,6 +20,14 @@ natively; the package never assumes an actor model.
   the mapping cannot be validated.
 - Mappings are versioned data with a closed operator vocabulary. Never add an
   eval-based operator; unknown operators are validation errors by design.
+- A match rule set has a `scope` (default `""`, the unscoped set) so one golden
+  resource can have several active sets, such as one per ingress mapping.
+  Activation retires only the active set with the same golden resource (and
+  tenant) and scope, and the one-active index is over (tenant,) golden resource
+  and scope. A host that never sets a scope sees no change. The host picks the
+  set it wants by golden resource and scope; the package never chooses among
+  scopes. A host that already owns the table needs a migration: add `scope`
+  (text, not null, default `''`) and rebuild the one-active index with it.
 - Survivorship is data on the match rule set, with a closed strategy set:
   `most_recent`, `source_rank`, `most_complete`, `non_null` (the default) and
   `steward_override` (`AshMdm.Survivorship.strategies/0`). `:activate` refuses

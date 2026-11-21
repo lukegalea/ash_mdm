@@ -107,6 +107,91 @@ defmodule AshMdm.MatchRuleActivationTest do
     end
   end
 
+  describe "scoped rule sets" do
+    defp scoped_draft!(golden, scope, overrides \\ %{}) do
+      attrs = %{golden_resource: golden, rules: [@exact], survivorship: %{}}
+      attrs = if scope, do: Map.put(attrs, :scope, scope), else: attrs
+
+      MatchRuleSet
+      |> Ash.Changeset.for_create(:draft, Map.merge(attrs, overrides))
+      |> Ash.create!(authorize?: false)
+    end
+
+    defp activate!(set) do
+      set |> Ash.Changeset.for_update(:activate) |> Ash.update!(authorize?: false)
+    end
+
+    defp status(id), do: Ash.get!(MatchRuleSet, id, authorize?: false).status
+
+    test "a set with no scope is the unscoped set" do
+      assert scoped_draft!("golden-#{System.unique_integer([:positive])}", nil).scope == ""
+    end
+
+    test "two scopes of one golden resource are active together" do
+      golden = "golden-#{System.unique_integer([:positive])}"
+      csv = golden |> scoped_draft!("csv_import") |> activate!()
+      people = golden |> scoped_draft!("canonical_people") |> activate!()
+
+      assert status(csv.id) == :active
+      assert status(people.id) == :active
+    end
+
+    test "activation retires only the same scope's predecessor" do
+      golden = "golden-#{System.unique_integer([:positive])}"
+      csv = golden |> scoped_draft!("csv_import") |> activate!()
+      other = golden |> scoped_draft!("canonical_people") |> activate!()
+      unscoped = golden |> scoped_draft!(nil) |> activate!()
+      successor = golden |> scoped_draft!("csv_import") |> activate!()
+
+      assert status(csv.id) == :retired
+      assert status(successor.id) == :active
+      assert status(other.id) == :active
+      assert status(unscoped.id) == :active
+    end
+
+    test "a successor version keeps its predecessor's scope" do
+      golden = "golden-#{System.unique_integer([:positive])}"
+      first = scoped_draft!(golden, "csv_import")
+
+      next =
+        MatchRuleSet
+        |> Ash.Changeset.for_create(:create_version, %{
+          from_rule_set_id: first.id,
+          rules: [@exact],
+          survivorship: %{}
+        })
+        |> Ash.create!(authorize?: false)
+
+      assert next.scope == "csv_import"
+      assert next.golden_resource == golden
+    end
+
+    test "the database refuses two active sets in one scope, and allows two scopes" do
+      golden = "golden-#{System.unique_integer([:positive])}"
+
+      insert = fn scope ->
+        Ecto.Adapters.SQL.query(
+          AshMdm.Test.Repo,
+          """
+          INSERT INTO mdm_match_rule_sets
+            (id, golden_resource, scope, rules, status, inserted_at, updated_at)
+          VALUES (gen_random_uuid(), $1, $2, '[]', 'active', now(), now())
+          """,
+          [golden, scope]
+        )
+      end
+
+      assert {:ok, _} = insert.("a")
+      assert {:ok, _} = insert.("b")
+      assert {:error, %Postgrex.Error{postgres: %{code: :unique_violation}}} = insert.("a")
+    end
+
+    test "scope does not change the content hash" do
+      golden = "golden-#{System.unique_integer([:positive])}"
+      assert scoped_draft!(golden, "a").content_hash == scoped_draft!(golden, "b").content_hash
+    end
+  end
+
   describe "the one-active index" do
     defp insert_active(golden_resource) do
       Ecto.Adapters.SQL.query(
