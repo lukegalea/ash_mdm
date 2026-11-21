@@ -14,7 +14,8 @@ defmodule AshMdm.Validations.ValidMatchRules do
 
   alias AshMdm.Standardize
 
-  @kinds ~w(exact fuzzy)
+  @kinds ~w(exact fuzzy overlap)
+  @measures ~w(count jaccard)
   @algorithms [nil, "levenshtein", "jaro"]
 
   @impl true
@@ -58,7 +59,26 @@ defmodule AshMdm.Validations.ValidMatchRules do
     end
   end
 
+  defp kind_problem(%{"kind" => "overlap"} = rule) do
+    cond do
+      not present?(rule["field"]) -> "overlap needs a field"
+      rule["measure"] not in @measures -> "overlap needs a measure of count or jaccard"
+      bad_threshold?(rule["measure"], rule["threshold"]) -> bad_threshold_message(rule)
+      true -> nil
+    end
+  end
+
   defp kind_problem(_rule), do: nil
+
+  defp bad_threshold?("count", t), do: not (is_integer(t) and t >= 1)
+  defp bad_threshold?("jaccard", t), do: not (is_number(t) and t > 0 and t <= 1)
+  defp bad_threshold?(_measure, _t), do: false
+
+  defp bad_threshold_message(%{"measure" => "count"} = rule),
+    do: "count threshold must be a whole number of 1 or more, got #{inspect(rule["threshold"])}"
+
+  defp bad_threshold_message(rule),
+    do: "jaccard threshold must be above 0 and at most 1, got #{inspect(rule["threshold"])}"
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 

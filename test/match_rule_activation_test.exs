@@ -220,6 +220,36 @@ defmodule AshMdm.MatchRuleActivationTest do
     end
   end
 
+  @overlap %{
+    "name" => "o",
+    "kind" => "overlap",
+    "field" => "meeting_ids",
+    "measure" => "count",
+    "threshold" => 2
+  }
+
+  test "accepts overlap rules" do
+    assert {:ok, %{status: :active}} = activate([@overlap])
+
+    assert {:ok, %{status: :active}} =
+             activate([%{@overlap | "measure" => "jaccard"} |> Map.put("threshold", 0.5)])
+  end
+
+  for {label, changes} <- [
+        {"no field", %{"field" => nil}},
+        {"no measure", %{"measure" => nil}},
+        {"an unknown measure", %{"measure" => "dice"}},
+        {"no threshold", %{"threshold" => nil}},
+        {"a count threshold of zero", %{"threshold" => 0}},
+        {"a fractional count threshold", %{"threshold" => 1.5}},
+        {"a jaccard threshold above one", %{"measure" => "jaccard", "threshold" => 2}},
+        {"a jaccard threshold of zero", %{"measure" => "jaccard", "threshold" => 0}}
+      ] do
+    test "refuses an overlap rule with #{label}" do
+      assert {:error, _} = activate([Map.merge(@overlap, unquote(Macro.escape(changes)))])
+    end
+  end
+
   test "refuses two rules with one name" do
     assert {:error, _} = activate([@exact, %{@fuzzy | "name" => "e"}])
   end
