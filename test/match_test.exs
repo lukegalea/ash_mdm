@@ -157,4 +157,78 @@ defmodule AshMdm.MatchTest do
       assert parts["lei_exact"]["missing"]
     end
   end
+
+  describe "overlap rules" do
+    defp overlap(measure, threshold),
+      do: %{
+        "name" => "o",
+        "kind" => "overlap",
+        "field" => "meetings",
+        "measure" => measure,
+        "threshold" => threshold
+      }
+
+    defp overlap_part(rule, a, b) do
+      {_score, %{"o" => part}} = Match.score([rule], %{"meetings" => a}, %{"meetings" => b})
+      part
+    end
+
+    test "count meets its threshold on shared items" do
+      part = overlap_part(overlap("count", 2), ["m1", "m2", "m3"], ["m2", "m3", "m9"])
+
+      assert Decimal.eq?(part["c"], 1)
+      assert %{"shared" => 2, "union" => 4, "measure" => "count", "threshold" => 2} = part["detail"]
+    end
+
+    test "count below its threshold contributes 0 but is not missing" do
+      part = overlap_part(overlap("count", 2), ["m1", "m2"], ["m2", "m9"])
+
+      assert Decimal.eq?(part["c"], 0)
+      refute Map.has_key?(part, "missing")
+      assert part["detail"]["shared"] == 1
+    end
+
+    test "jaccard is shared over union" do
+      met = overlap_part(overlap("jaccard", 0.5), ["a", "b", "c"], ["b", "c", "d"])
+      assert Decimal.eq?(met["c"], 1)
+      assert met["detail"]["value"] == 0.5
+
+      unmet = overlap_part(overlap("jaccard", 0.6), ["a", "b", "c"], ["b", "c", "d"])
+      assert Decimal.eq?(unmet["c"], 0)
+    end
+
+    test "items are normalised, blanks dropped and duplicates collapsed" do
+      part = overlap_part(overlap("count", 2), [" A ", "a", "B", ""], ["a", "b"])
+      assert Decimal.eq?(part["c"], 1)
+      assert part["detail"]["union"] == 2
+    end
+
+    test "an empty or absent list on either side is missing, never a match" do
+      for {a, b} <- [{[], ["x"]}, {["x"], nil}, {[" "], ["x"]}] do
+        part = overlap_part(overlap("count", 1), a, b)
+        assert part["missing"] == true
+        assert Decimal.eq?(part["c"], 0)
+      end
+    end
+
+    test "weight and score fold like any other rule" do
+      rules = [Map.put(overlap("count", 1), "weight", 1.0), Enum.at(@rules, 0)]
+
+      {score, _} =
+        Match.score(rules, %{"meetings" => ["m"], "email" => "a@b.c"}, %{
+          "meetings" => ["m"],
+          "email" => "a@b.c"
+        })
+
+      assert Decimal.eq?(score, 1)
+    end
+
+    test "compared/2 reports the distinct sorted items" do
+      assert [%{"rule" => "o", "field" => "meetings", "compared" => ["a", "b"], "absent" => false}] =
+               Match.compared([overlap("count", 1)], %{"meetings" => ["B", "a", "b"]})
+
+      assert [%{"compared" => nil, "absent" => true}] =
+               Match.compared([overlap("count", 1)], %{"meetings" => []})
+    end
+  end
 end

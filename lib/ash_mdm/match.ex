@@ -26,6 +26,24 @@ defmodule AshMdm.Match do
   `standardize` is optional and runs after trim and lowercase; see
   `AshMdm.Standardize`.
 
+  An `overlap` rule compares a list-valued field as a set, for evidence such
+  as two people attending the same meetings:
+
+      %{"name" => "shared_meetings", "kind" => "overlap", "field" => "meeting_ids",
+        "measure" => "count", "threshold" => 2, "weight" => 1.0}
+      %{"name" => "shared_threads", "kind" => "overlap", "field" => "thread_ids",
+        "measure" => "jaccard", "threshold" => 0.5}
+
+  Each item is trimmed, lowercased and standardized like a field value, blanks
+  are dropped and duplicates collapse. `"measure"` is `"count"` (at least
+  `threshold` items in common, a whole number of 1 or more) or `"jaccard"`
+  (shared items over all items, at least `threshold`, a number above 0 and up
+  to 1). The rule contributes 1 when the threshold is met and 0 when it is
+  not, and its explanation entry carries `"detail"`: `"measure"`, `"threshold"`,
+  `"shared"`, `"union"` and `"value"`. An empty or absent list on either side
+  is `"missing"`: two people with no recorded meetings are not evidence of
+  anything.
+
   Missing values on either side contribute 0 and the rule's entry gains
   `"missing" => true`, so a calibration can tell "no data" from "disagreed". An
   `exact` rule over several fields disagrees if any field both sides state
@@ -60,6 +78,10 @@ defmodule AshMdm.Match do
   defp rule_weight(_), do: 1.0
 
   defp part(:missing, weight), do: %{"w" => weight, "c" => Decimal.new(0), "missing" => true}
+
+  defp part({:detail, contribution, detail}, weight),
+    do: %{"w" => weight, "c" => contribution, "detail" => detail}
+
   defp part(contribution, weight), do: %{"w" => weight, "c" => contribution}
 
   defp contribution(%{"kind" => "exact", "fields" => fields} = rule, staged, golden) do
@@ -90,7 +112,39 @@ defmodule AshMdm.Match do
     end
   end
 
+  defp contribution(%{"kind" => "overlap", "field" => field} = rule, staged, golden) do
+    s = item_set(staged[field], rule)
+    g = item_set(golden[field], rule)
+
+    if MapSet.size(s) == 0 or MapSet.size(g) == 0 do
+      :missing
+    else
+      shared = s |> MapSet.intersection(g) |> MapSet.size()
+      union = MapSet.size(s) + MapSet.size(g) - shared
+      measure = rule["measure"] || "count"
+      value = if measure == "jaccard", do: shared / union, else: shared
+      met? = value >= rule["threshold"]
+
+      {:detail, Decimal.new(if(met?, do: 1, else: 0)),
+       %{
+         "measure" => measure,
+         "threshold" => rule["threshold"],
+         "shared" => shared,
+         "union" => union,
+         "value" => value
+       }}
+    end
+  end
+
   defp contribution(_unknown_kind, _staged, _golden), do: Decimal.new(0)
+
+  defp item_set(value, rule) do
+    value
+    |> List.wrap()
+    |> Enum.map(&compared_value(&1, rule))
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
 
   @doc """
   The value a rule compares for one raw field value: trimmed, lowercased,
@@ -130,13 +184,15 @@ defmodule AshMdm.Match do
       [%{"rule" => "name_fuzzy", "field" => "name", "raw" => "Acme Ltd.",
          "compared" => "acme", "standardize" => ["legal_suffix"], "absent" => false}]
 
+  An `overlap` rule's compared value is its sorted list of distinct items.
   A rule of an unknown kind compares nothing and has no entry.
   """
   @spec compared([map()], map()) :: [map()]
   def compared(rules, record) when is_list(rules) do
     for rule <- rules, field <- rule_fields(rule) do
       raw = record[field]
-      compared = compared_value(raw, rule)
+
+      compared = compared_for(rule, raw)
 
       %{
         "rule" => rule["name"],
@@ -149,8 +205,18 @@ defmodule AshMdm.Match do
     end
   end
 
+  defp compared_for(%{"kind" => "overlap"} = rule, raw) do
+    case item_set(raw, rule) |> Enum.sort() do
+      [] -> nil
+      items -> items
+    end
+  end
+
+  defp compared_for(rule, raw), do: compared_value(raw, rule)
+
   defp rule_fields(%{"kind" => "exact", "fields" => fields}) when is_list(fields), do: fields
   defp rule_fields(%{"kind" => "fuzzy", "field" => field}), do: [field]
+  defp rule_fields(%{"kind" => "overlap", "field" => field}), do: [field]
   defp rule_fields(_unknown_kind), do: []
 
   defp normalized(value, rule), do: compared_value(value, rule)
