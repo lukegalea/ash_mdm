@@ -29,6 +29,30 @@ defmodule AshMdm.Mapping.EvaluatorTest do
                 }}
     end
 
+    test "collapse_whitespace joins runs of whitespace and trims the ends" do
+      rules = [rule("n", "n", "collapse_whitespace")]
+
+      assert run(rules, %{"n" => "  Zoe \t Smith\n\u00A0Jr "}) == {:ok, %{"n" => "Zoe Smith Jr"}}
+      assert run(rules, %{"n" => "Zoe Smith"}) == {:ok, %{"n" => "Zoe Smith"}}
+      assert {:error, {:rule, _, {:not_a_string, 5}}} = run(rules, %{"n" => 5})
+    end
+
+    test "fold_accents makes accented and plain spellings equal" do
+      rules = [rule("n", "n", "fold_accents")]
+
+      assert run(rules, %{"n" => "Zoë"}) == {:ok, %{"n" => "Zoe"}}
+      assert run(rules, %{"n" => "Zoe"}) == {:ok, %{"n" => "Zoe"}}
+      assert run(rules, %{"n" => "Société Générale"}) == {:ok, %{"n" => "Societe Generale"}}
+      assert run(rules, %{"n" => "ﬁancé"}) == {:ok, %{"n" => "fiance"}}
+      assert run(rules, %{"n" => "Zoe\u0308"}) == {:ok, %{"n" => "Zoe"}}
+      assert {:error, {:rule, _, {:not_a_string, 5}}} = run(rules, %{"n" => 5})
+    end
+
+    test "the validator knows both operators" do
+      assert "collapse_whitespace" in AshMdm.Mapping.Evaluator.ops()
+      assert "fold_accents" in AshMdm.Mapping.Evaluator.ops()
+    end
+
     test "cast to integer" do
       assert run([rule("n", "n", "cast", %{"type" => "integer"})], %{"n" => "42"}) ==
                {:ok, %{"n" => 42}}
