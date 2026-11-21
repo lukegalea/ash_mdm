@@ -19,7 +19,10 @@ defmodule AshMdm.Test.Repo.Migrations.AddRuleSetScope do
       drop(index(table, cols, name: "#{table}_one_active"))
 
       create(
-        unique_index(table, cols ++ [:scope], where: "status = 'active'", name: "#{table}_one_active")
+        unique_index(table, cols ++ [:scope],
+          where: "status = 'active'",
+          name: "#{table}_one_active"
+        )
       )
     end
   end
