@@ -177,7 +177,9 @@ defmodule AshMdm.MatchTest do
       part = overlap_part(overlap("count", 2), ["m1", "m2", "m3"], ["m2", "m3", "m9"])
 
       assert Decimal.eq?(part["c"], 1)
-      assert %{"shared" => 2, "union" => 4, "measure" => "count", "threshold" => 2} = part["detail"]
+
+      assert %{"shared" => 2, "union" => 4, "measure" => "count", "threshold" => 2} =
+               part["detail"]
     end
 
     test "count below its threshold contributes 0 but is not missing" do
@@ -224,7 +226,14 @@ defmodule AshMdm.MatchTest do
     end
 
     test "compared/2 reports the distinct sorted items" do
-      assert [%{"rule" => "o", "field" => "meetings", "compared" => ["a", "b"], "absent" => false}] =
+      assert [
+               %{
+                 "rule" => "o",
+                 "field" => "meetings",
+                 "compared" => ["a", "b"],
+                 "absent" => false
+               }
+             ] =
                Match.compared([overlap("count", 1)], %{"meetings" => ["B", "a", "b"]})
 
       assert [%{"compared" => nil, "absent" => true}] =

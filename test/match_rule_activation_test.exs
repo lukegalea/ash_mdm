@@ -145,7 +145,9 @@ defmodule AshMdm.MatchRuleActivationTest do
 
   test "accepts overlap rules" do
     assert {:ok, %{status: :active}} = activate([@overlap])
-    assert {:ok, %{status: :active}} = activate([%{@overlap | "measure" => "jaccard"} |> Map.put("threshold", 0.5)])
+
+    assert {:ok, %{status: :active}} =
+             activate([%{@overlap | "measure" => "jaccard"} |> Map.put("threshold", 0.5)])
   end
 
   for {label, changes} <- [
